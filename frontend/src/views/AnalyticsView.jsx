@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { exportDataToCsv } from "../utils/export.js";
 import ReportFilters from "../components/ReportFilters.jsx";
 import client from "../api/client.js";
 import {
@@ -198,10 +199,41 @@ export default function AnalyticsView({ queues, agents }) {
         <ReportFilters
           queues={queues}
           agents={agents}
-          onSubmit={loadVolume}
-          loading={volumeLoading}
           buttonLabel="Построить"
         />
+        {volumeReport && (
+          <button
+            className="button"
+            style={{ marginTop: "1rem" }}
+            onClick={() => {
+              const sections = [
+                { title: "Daily Volume", data: dailySeries },
+                { title: "Hourly Volume", data: hourlySeries },
+                { title: "Queue Volume", data: queueSeries },
+              ];
+              const csvContent = sections
+                .map((section) => {
+                  if (!section.data || section.data.length === 0) return "";
+                  const headers = Object.keys(section.data[0]);
+                  const rows = section.data.map((row) => headers.map((h) => JSON.stringify(row[h] ?? '')).join(","));
+                  return `${section.title}\n${headers.join(",")}\n${rows.join("\n")}`;
+                })
+                .filter(Boolean)
+                .join("\n\n");
+
+              const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+              const link = document.createElement("a");
+              const url = URL.createObjectURL(blob);
+              link.setAttribute("href", url);
+              link.setAttribute("download", `volume-report-${new Date().toISOString().split("T")[0]}.csv`);
+              link.style.visibility = "hidden";
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }}>
+            Экспорт в CSV
+          </button>
+        )}
         {volumeError && <div className="error">Не удалось получить отчет: {volumeError.message}</div>}
         {!volumeReport && !volumeLoading && <div className="muted">Выберите параметры и постройте график.</div>}
         {volumeReport && (
@@ -279,9 +311,16 @@ export default function AnalyticsView({ queues, agents }) {
           agents={agents}
           onSubmit={loadAgentPerformance}
           requireAgents
-          loading={agentLoading}
           buttonLabel="Построить"
         />
+        {agentReport && (
+          <button
+            className="button"
+            style={{ marginTop: "1rem" }}
+            onClick={() => exportDataToCsv(`agent-performance-${new Date().toISOString().split("T")[0]}.csv`, agentTalkSeries)}>
+            Экспорт в CSV
+          </button>
+        )}
         {agentError && <div className="error">Не удалось получить отчет: {agentError.message}</div>}
         {!agentReport && !agentLoading && <div className="muted">Укажите параметры и построите график.</div>}
         {agentReport && (
@@ -341,6 +380,14 @@ export default function AnalyticsView({ queues, agents }) {
           loading={slaLoading}
           buttonLabel="Рассчитать"
         />
+        {slaReport && (
+          <button
+            className="button"
+            style={{ marginTop: "1rem" }}
+            onClick={() => exportDataToCsv(`sla-report-${new Date().toISOString().split("T")[0]}.csv`, slaSeries)}>
+            Экспорт в CSV
+          </button>
+        )}
         {slaError && <div className="error">Не удалось получить отчет: {slaError.message}</div>}
         {!slaReport && !slaLoading && <div className="muted">Выберите параметры и рассчитайте SLA.</div>}
         {slaReport && (

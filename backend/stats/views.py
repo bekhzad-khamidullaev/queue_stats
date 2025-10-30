@@ -660,61 +660,99 @@ def agent_performance_report(request: HttpRequest) -> JsonResponse:
     )
 
 
-class AjamClient:
-    def __init__(self) -> None:
-        self.url = settings.ASTERISK_AJAM_URL
-        self.username = settings.ASTERISK_AJAM_USERNAME
-        self.secret = settings.ASTERISK_AJAM_SECRET
-        self.authtype = settings.ASTERISK_AJAM_AUTHTYPE
-        self.session = requests.Session()
+import socket
 
-    def _login(self) -> None:
-        payload = {
-            "Action": "Login",
-            "Username": self.username,
-            "Secret": self.secret,
-        }
-        response = self.session.post(self.url, data=payload, timeout=5)
-        response.raise_for_status()
+class AmiClient:
+    def __init__(self, host, port, username, secret):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.secret = secret
+        self.socket = None
 
-    def _request(self, action: str, **params: Any) -> Dict[str, Any]:
-        data = {"Action": action, **params}
-        response = self.session.post(self.url, data=data, timeout=5)
-        response.raise_for_status()
-        return self._parse_response(response.text)
+    def __enter__(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((self.host, self.port))
+        # Read the initial "Asterisk Call Manager..." line
+        self.socket.recv(1024)
+
+        login_action = f"Action: Login\r\nUsername: {self.username}\r\nSecret: {self.secret}\r\n\r\n"
+        self.socket.sendall(login_action.encode())
+        login_response = self._read_response()
+        if "Success" not in login_response:
+            raise ConnectionRefusedError(f"AMI Login failed: {login_response}")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.socket:
+            logoff_action = "Action: Logoff\r\n\r\n"
+            self.socket.sendall(logoff_action.encode())
+            self.socket.close()
+
+    def _read_response(self):
+        response = ""
+        while True:
+            data = self.socket.recv(1024).decode()
+            response += data
+            if "\r\n\r\n" in response:
+                break
+        return response
+
+    def send_action(self, action: str, **params: Any) -> Dict[str, Any]:
+        action_str = f"Action: {action}\r\n"
+        for key, value in params.items():
+            action_str += f"{key}: {value}\r\n"
+        action_str += "\r\n"
+        self.socket.sendall(action_str.encode())
+
+        response_data = ""
+        while True:
+            chunk = self.socket.recv(4096).decode()
+            response_data += chunk
+            if response_data.endswith("--END COMMAND--\r\n\r\n") or action in ["QueueStatus", "CoreShowChannels"] and response_data.endswith("\r\n\r\n"):
+                 # Some commands dont have a clear end marker, we depend on a timeout from the socket
+                 # For now we assume the double crlf is enough for our commands.
+                 break
+        return self._parse_response(response_data)
 
     def _parse_response(self, payload: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
         entries: List[Dict[str, str]] = []
         current: Dict[str, str] = {}
+
         for line in payload.splitlines():
-            if not line.strip():
+            line = line.strip()
+            if not line or line.startswith("--END COMMAND--"):
                 continue
-            if line.startswith("Event:"):
+
+            if line.startswith("Event:") or line.startswith("Response:") or line.startswith("Channel:"):
                 if current:
                     entries.append(current)
-                    current = {}
+                current = {}
+
+            if ":" in line:
                 key, value = line.split(":", 1)
                 current[key.strip()] = value.strip()
-            else:
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    current[key.strip()] = value.strip()
+
         if current:
             entries.append(current)
         result["entries"] = entries
         return result
 
-    def request(self, action: str, **params: Any) -> Dict[str, Any]:
-        self._login()
-        return self._request(action, **params)
+def _ami_response(action: str, **params: Any) -> Dict[str, Any]:
+    general_settings = GeneralSettings.objects.first()
+    if not general_settings or not general_settings.ami_host:
+        return {"error": "AMI settings not configured in admin panel."}
 
-
-def _ajam_response(action: str, **params: Any) -> Dict[str, Any]:
-    client = AjamClient()
     try:
-        return client.request(action, **params)
-    except (requests.RequestException, ValueError) as exc:
+        with AmiClient(
+            host=general_settings.ami_host,
+            port=general_settings.ami_port,
+            username=general_settings.ami_user,
+            secret=general_settings.ami_password,
+        ) as client:
+            return client.send_action(action, **params)
+    except (socket.error, ConnectionRefusedError, Exception) as exc:
         return {"error": str(exc), "action": action}
 
 
@@ -723,7 +761,7 @@ def _ajam_response(action: str, **params: Any) -> Dict[str, Any]:
 def active_calls(request: HttpRequest) -> JsonResponse:
     if request.user.role not in {UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT}:
         return JsonResponse({"detail": "forbidden"}, status=403)
-    data = _ajam_response("CoreShowChannels")
+    data = _ami_response("CoreShowChannels")
     return JsonResponse(data)
 
 
@@ -732,7 +770,7 @@ def active_calls(request: HttpRequest) -> JsonResponse:
 def queue_status(request: HttpRequest) -> JsonResponse:
     if request.user.role not in {UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT}:
         return JsonResponse({"detail": "forbidden"}, status=403)
-    data = _ajam_response("QueueStatus")
+    data = _ami_response("QueueStatus")
     return JsonResponse(data)
 
 
@@ -741,16 +779,18 @@ def queue_status(request: HttpRequest) -> JsonResponse:
 def queue_summary(request: HttpRequest) -> JsonResponse:
     if request.user.role not in {UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT}:
         return JsonResponse({"detail": "forbidden"}, status=403)
-    data = _ajam_response("QueueSummary")
+    data = _ami_response("QueueSummary")
     return JsonResponse(data)
 
 
+from django.http import StreamingHttpResponse
+
 def get_recording(request: HttpRequest, uniqueid: str) -> FileResponse:
     settings = GeneralSettings.objects.first()
-    if not settings or not settings.recording_path:
-        raise Http404("Recording path not configured")
+    if not settings or not settings.download_url:
+        raise Http404("Recording download service not configured in admin panel.")
 
-    # Sanitize uniqueid to prevent directory traversal
+    # Sanitize uniqueid to prevent security issues
     if not uniqueid or not all(c.isalnum() or c in ".-" for c in uniqueid):
         raise Http404("Invalid uniqueid")
 
@@ -759,16 +799,29 @@ def get_recording(request: HttpRequest, uniqueid: str) -> FileResponse:
         row = cursor.fetchone()
 
     if not row or not row[0]:
-        raise Http404("Recording not found")
+        raise Http404("Recording not found in CDR database.")
 
-    recording_file = row[0]
-    # Security: prevent directory traversal
-    if ".." in recording_file or recording_file.startswith("/"):
-        raise Http404("Invalid recording path")
+    recording_path = row[0]
+    if not recording_path:
+        raise Http404("Recording file path is empty in CDR database.")
 
-    full_path = os.path.join(settings.recording_path, recording_file)
+    params = {
+        "url": recording_path,
+        "token": settings.download_token,
+    }
 
-    if not os.path.exists(full_path):
-        raise Http404("Recording file not found on disk")
+    auth = (settings.download_user, settings.download_password)
 
-    return FileResponse(open(full_path, "rb"), as_attachment=True)
+    try:
+        response = requests.get(settings.download_url, params=params, auth=auth, stream=True, timeout=10)
+        response.raise_for_status()  # Raise an exception for bad status codes
+
+        # Stream the response back to the client
+        return StreamingHttpResponse(
+            response.iter_content(chunk_size=8192),
+            content_type=response.headers.get("Content-Type"),
+            status=response.status_code,
+            reason=response.reason,
+        )
+    except requests.RequestException as e:
+        raise Http404(f"Failed to fetch recording from download service: {e}")
