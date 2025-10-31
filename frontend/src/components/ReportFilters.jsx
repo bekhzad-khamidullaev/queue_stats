@@ -17,16 +17,16 @@ export default function ReportFilters({
 }) {
   const [selectedQueues, setSelectedQueues] = useState([]);
   const [selectedAgents, setSelectedAgents] = useState([]);
-  const [start, setStart] = useState(`${formatDate(today)} 00:00:00`);
-  const [end, setEnd] = useState(`${formatDate(today)} 23:59:59`);
+  const [start, setStart] = useState(`${formatDate(today)}T00:00`);
+  const [end, setEnd] = useState(`${formatDate(today)}T23:59`);
 
   const submit = (event) => {
     event.preventDefault();
     onSubmit({
       queues: selectedQueues,
       agents: selectedAgents,
-      start,
-      end,
+      start: start.replace("T", " "),
+      end: end.replace("T", " "),
     });
   };
 
@@ -49,6 +49,10 @@ export default function ReportFilters({
             </option>
           ))}
         </select>
+        <div className="filters__buttons">
+          <button type="button" onClick={() => setSelectedQueues(queues.map(q => q.queuename))}>Выбрать все</button>
+          <button type="button" onClick={() => setSelectedQueues([])}>Очистить</button>
+        </div>
       </div>
       {requireAgents && (
         <div className="filters__column">
@@ -68,15 +72,19 @@ export default function ReportFilters({
               </option>
             ))}
           </select>
+          <div className="filters__buttons">
+            <button type="button" onClick={() => setSelectedAgents(agents.map(a => a.agent))}>Выбрать все</button>
+            <button type="button" onClick={() => setSelectedAgents([])}>Очистить</button>
+          </div>
         </div>
       )}
       <div className="filters__column">
         <label htmlFor="start">Начало</label>
-        <input id="start" type="text" value={start} onChange={(event) => setStart(event.target.value)} />
+        <input id="start" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
       </div>
       <div className="filters__column">
         <label htmlFor="end">Конец</label>
-        <input id="end" type="text" value={end} onChange={(event) => setEnd(event.target.value)} />
+        <input id="end" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
       </div>
       <div className="filters__column">
         <label>&nbsp;</label>

@@ -53,6 +53,12 @@ export default function App() {
 
   const CurrentView = useMemo(() => availableViews.find((view) => view.id === activeView)?.component, [activeView, availableViews]);
 
+  useEffect(() => {
+    if (!availableViews.some((view) => view.id === activeView) && defaultView) {
+      setActiveView(defaultView);
+    }
+  }, [availableViews, activeView, defaultView]);
+
   if (authLoading) {
     return (
       <div className="app">
@@ -90,12 +96,6 @@ export default function App() {
       </div>
     );
   }
-
-  useEffect(() => {
-    if (!availableViews.some((view) => view.id === activeView) && defaultView) {
-      setActiveView(defaultView);
-    }
-  }, [availableViews, activeView, defaultView]);
 
   return (
     <div className="app">

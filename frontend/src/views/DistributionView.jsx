@@ -67,7 +67,7 @@ export default function DistributionView({ queues, agents }) {
     exportDataToCsv(`distribution-hourly-${new Date().toISOString().split('T')[0]}.csv`, hourlyData);
   };
 
-  const queues = report?.timeline ? Object.keys(report.timeline) : [];
+  const reportQueues = report?.timeline ? Object.keys(report.timeline) : [];
 
   return (
     <div className="view">
@@ -96,7 +96,7 @@ export default function DistributionView({ queues, agents }) {
                       <YAxis label={{ value: "Количество вызовов", angle: -90, position: "insideLeft" }} />
                       <Tooltip />
                       <Legend />
-                      {queues.map((queue, index) => (
+                      {reportQueues.map((queue, index) => (
                         <Bar 
                           key={queue} 
                           dataKey={queue} 

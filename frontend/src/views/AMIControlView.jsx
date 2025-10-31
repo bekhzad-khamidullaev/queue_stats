@@ -117,11 +117,11 @@ export default function AMIControlView() {
     }
   }, [activeTab, loadQueues, loadChannels]);
 
-  const handlePauseMember = async (queue, interface, paused) => {
+  const handlePauseMember = async (queue, agentInterface, paused) => {
     try {
       await client.post("/ami/queue/pause/", {
         queue,
-        interface,
+        interface: agentInterface,
         paused
       });
       loadQueues();
@@ -130,10 +130,10 @@ export default function AMIControlView() {
     }
   };
 
-  const handleRemoveMember = async (queue, interface) => {
-    if (!confirm(`Удалить агента ${interface} из очереди ${queue}?`)) return;
+  const handleRemoveMember = async (queue, agentInterface) => {
+    if (!confirm(`Удалить агента ${agentInterface} из очереди ${queue}?`)) return;
     try {
-      await client.post("/ami/queue/remove/", { queue, interface });
+      await client.post("/ami/queue/remove/", { queue, interface: agentInterface });
       loadQueues();
     } catch (err) {
       alert(`Ошибка: ${err.message}`);

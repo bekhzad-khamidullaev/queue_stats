@@ -14,7 +14,7 @@ export default function RealtimeQueuesView() {
       try {
         const [summaryRes, statusRes] = await Promise.all([
           client.get("/realtime/queue-summary/"),
-          client.get("/realtime/queues/"),
+          client.get("/realtime/queue-status/"),
         ]);
         if (!cancelled) {
           setSummary(summaryRes.data.entries ?? []);
