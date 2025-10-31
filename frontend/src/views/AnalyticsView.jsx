@@ -173,6 +173,21 @@ export default function AnalyticsView({ queues, agents }) {
       .map(([, value]) => value);
   }, [agentReport, topAgents]);
 
+  const hourlyHeatmapData = useMemo(() => {
+    if (!volumeReport?.hourly) {
+      return [];
+    }
+    const dayHourMap = new Map();
+    volumeReport.hourly.forEach((row) => {
+      const day = row.day;
+      const hour = row.hour;
+      const key = `${day}-${hour}`;
+      const total = toNumber(row.answered) + toNumber(row.unanswered);
+      dayHourMap.set(key, { day, hour, total });
+    });
+    return Array.from(dayHourMap.values());
+  }, [volumeReport]);
+
   const slaSeries = useMemo(() => {
     if (!slaReport?.daily) {
       return [];
@@ -199,6 +214,8 @@ export default function AnalyticsView({ queues, agents }) {
         <ReportFilters
           queues={queues}
           agents={agents}
+          onSubmit={loadVolume}
+          loading={volumeLoading}
           buttonLabel="Построить"
         />
         {volumeReport && (
@@ -270,6 +287,7 @@ export default function AnalyticsView({ queues, agents }) {
               </div>
             </div>
             <div className="card">
+              <h3 className="card__title">Почасовое распределение</h3>
               <div style={{ width: "100%", height: 300 }}>
                 <ResponsiveContainer>
                   <BarChart data={hourlySeries}>
@@ -284,6 +302,54 @@ export default function AnalyticsView({ queues, agents }) {
                 </ResponsiveContainer>
               </div>
             </div>
+            {hourlyHeatmapData.length > 0 && (
+              <div className="card">
+                <h3 className="card__title">Тепловая карта звонков по часам</h3>
+                <div style={{ width: "100%", overflowX: "auto" }}>
+                  <table className="table" style={{ width: "auto", minWidth: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th>День</th>
+                        {[...Array(24)].map((_, h) => (
+                          <th key={h} style={{ padding: "0.5rem", textAlign: "center" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from(new Set(hourlyHeatmapData.map(d => d.day))).sort().map(day => (
+                        <tr key={day}>
+                          <td style={{ fontWeight: "bold" }}>{formatDateLabel(day)}</td>
+                          {[...Array(24)].map((_, hour) => {
+                            const dataPoint = hourlyHeatmapData.find(d => d.day === day && d.hour === hour);
+                            const total = dataPoint?.total || 0;
+                            const maxCalls = Math.max(...hourlyHeatmapData.map(d => d.total));
+                            const intensity = maxCalls > 0 ? total / maxCalls : 0;
+                            const bgColor = total === 0 
+                              ? "#f5f5f5" 
+                              : `rgba(43, 103, 246, ${0.2 + intensity * 0.8})`;
+                            return (
+                              <td
+                                key={hour}
+                                style={{
+                                  backgroundColor: bgColor,
+                                  color: intensity > 0.5 ? "white" : "inherit",
+                                  textAlign: "center",
+                                  padding: "0.5rem",
+                                  fontWeight: total > 0 ? "bold" : "normal"
+                                }}
+                                title={`${day} ${hour}:00 - ${total} звонков`}
+                              >
+                                {total || ""}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
             <div className="card">
               <h3 className="card__title">Вызовы по очередям</h3>
               <div style={{ width: "100%", height: 320 }}>

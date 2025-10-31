@@ -11,14 +11,17 @@ import RawEventsView from "./views/RawEventsView.jsx";
 import AnsweredCdrView from "./views/AnsweredCdrView.jsx";
 import UserAdminView from "./views/UserAdminView.jsx";
 import LoginView from "./views/LoginView.jsx";
+import AMIControlView from "./views/AMIControlView.jsx";
 
 const VIEWS = [
   { id: "summary", label: "Сводка", component: SummaryView, permission: "summary" },
   { id: "answered", label: "Принятые", component: AnsweredView, permission: "answered" },
-      { id: "unanswered", label: "Непринятые", component: UnansweredView, permission: "unanswered" },
-      { id: "answered-cdr", label: "Принятые (CDR)", component: AnsweredCdrView, permission: "answered" },
-      { id: "distribution", label: "Распределение", component: DistributionView, permission: "distribution" },  { id: "realtime-calls", label: "Звонки онлайн", component: RealtimeCallsView, permission: "realtime" },
+  { id: "unanswered", label: "Непринятые", component: UnansweredView, permission: "unanswered" },
+  { id: "answered-cdr", label: "Принятые (CDR)", component: AnsweredCdrView, permission: "answered" },
+  { id: "distribution", label: "Распределение", component: DistributionView, permission: "distribution" },
+  { id: "realtime-calls", label: "Звонки онлайн", component: RealtimeCallsView, permission: "realtime" },
   { id: "realtime-queues", label: "Очереди онлайн", component: RealtimeQueuesView, permission: "realtime" },
+  { id: "ami-control", label: "Управление AMI", component: AMIControlView, permission: "admin" },
   { id: "raw", label: "Сырые события", component: RawEventsView, permission: "raw" },
   { id: "users", label: "Пользователи", component: UserAdminView, permission: "admin" },
 ];

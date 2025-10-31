@@ -72,6 +72,7 @@ class Cdr(models.Model):
     accountcode = models.CharField(max_length=20)
     uniqueid = models.CharField(max_length=32)
     userfield = models.CharField(max_length=255)
+    recordingfile = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
         managed = False

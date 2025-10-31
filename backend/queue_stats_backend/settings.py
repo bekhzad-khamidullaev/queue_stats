@@ -7,6 +7,7 @@ the legacy Asterisk MySQL databases without hardcoding credentials.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 import json
 from typing import Any, Dict
@@ -31,17 +32,38 @@ ALLOWED_HOSTS: list[str] = [
 # --- Applications ------------------------------------------------------------
 
 INSTALLED_APPS = [
-    "accounts",
-    "corsheaders",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "channels",
+    "accounts",
     "stats",
     "settings",
 ]
+
+ASGI_APPLICATION = "queue_stats_backend.asgi.application"
+
+# Channel layers configuration for WebSocket
+# For development, use InMemoryChannelLayer
+# For production with multiple workers, use Redis:
+if os.environ.get('DJANGO_ENV') == 'production':
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [(os.environ.get('REDIS_HOST', '127.0.0.1'), int(os.environ.get('REDIS_PORT', 6379)))],
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer"
+        }
+    }
 
 
 # --- Middleware --------------------------------------------------------------
@@ -101,7 +123,6 @@ def _sqlite_database() -> Dict[str, Any]:
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
     }
-}
 
 # Load Asterisk DB config from file if it exists
 asterisk_db_config_path = BASE_DIR / "asterisk_db.json"
@@ -117,6 +138,12 @@ if DATABASE_ENGINE == "sqlite":
     DATABASES: Dict[str, Dict[str, Any]] = {"default": _sqlite_database()}
 else:
     DATABASES = {"default": _mysql_database()}
+
+if 'test' in sys.argv:
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': ':memory:',
+    }
 
 
 # --- Password validation -----------------------------------------------------
