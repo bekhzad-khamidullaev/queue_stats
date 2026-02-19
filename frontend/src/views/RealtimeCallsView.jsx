@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import client from "../api/client.js";
+import { buildQueueNameMap, formatQueueName } from "../utils/displayNames.js";
 
-export default function RealtimeCallsView() {
+export default function RealtimeCallsView({ queues }) {
   const [data, setData] = useState([]);
   const [error, setError] = useState(null);
+  const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +54,7 @@ export default function RealtimeCallsView() {
               </div>
               <div>
                 <div className="muted">Очередь</div>
-                <div>{item.Context}</div>
+                <div>{formatQueueName(item.Context, queueNameMap)}</div>
               </div>
               <div>
                 <div className="muted">Время</div>
@@ -66,4 +68,3 @@ export default function RealtimeCallsView() {
     </div>
   );
 }
-

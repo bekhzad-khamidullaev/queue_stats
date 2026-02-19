@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ReportFilters from "../components/ReportFilters.jsx";
 import client from "../api/client.js";
+import { buildAgentNameMap, buildQueueNameMap, formatAgentName, formatQueueName } from "../utils/displayNames.js";
 
-export default function RawEventsView({ queues }) {
+export default function RawEventsView({ queues, agents }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
+  const agentNameMap = useMemo(() => buildAgentNameMap(agents), [agents]);
 
   const loadEvents = async (filters) => {
     try {
@@ -47,8 +50,8 @@ export default function RawEventsView({ queues }) {
                 <tr key={`${event.callid}-${index}`}>
                   <td>{event.time}</td>
                   <td>{event.callid}</td>
-                  <td>{event.queuename}</td>
-                  <td>{event.agent}</td>
+                  <td>{formatQueueName(event.queuename, queueNameMap)}</td>
+                  <td>{formatAgentName(event.agent, agentNameMap)}</td>
                   <td>{event.event}</td>
                   <td>{event.data1}</td>
                   <td>{event.data2}</td>
@@ -62,4 +65,3 @@ export default function RawEventsView({ queues }) {
     </div>
   );
 }
-

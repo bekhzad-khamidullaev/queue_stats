@@ -4,13 +4,11 @@ import json
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List
-import os
 from django.http import FileResponse, Http404
 
 from settings.models import GeneralSettings
 
 import requests
-from django.conf import settings
 from django.db import connections
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -53,6 +51,29 @@ def _normalize_list(value: Any) -> List[str]:
     if isinstance(value, Iterable):
         return [str(item).strip() for item in value]
     return []
+
+
+def _parse_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _join_enterqueue_callerids(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    caller_by_callid: Dict[str, str] = {}
+    enriched: List[Dict[str, Any]] = []
+    for row in rows:
+        callid = str(row.get("callid") or "")
+        if row.get("event") == "ENTERQUEUE":
+            caller_by_callid[callid] = str(row.get("data2") or "")
+            continue
+        copy = dict(row)
+        if callid in caller_by_callid:
+            copy["callerid"] = caller_by_callid[callid]
+        enriched.append(copy)
+    return enriched
 
 
 @require_GET
@@ -360,6 +381,13 @@ def raw_events(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def raw_events_legacy(request: HttpRequest) -> JsonResponse:
+    return raw_events(request)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def summary_report(request: HttpRequest) -> JsonResponse:
     payload = _parse_request_payload(request)
     queues = _normalize_list(payload.get("queues") or payload.get("queue"))
@@ -407,7 +435,9 @@ def summary_report(request: HttpRequest) -> JsonResponse:
         "avg_talk_time": round(total_talk_time / answered_calls, 2) if answered_calls else 0,
         "calls_per_queue": dict(calls_per_queue),
     }
-    return JsonResponse(summary)
+    payload = dict(summary)
+    payload["summary"] = summary
+    return JsonResponse(payload)
 
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
@@ -442,6 +472,264 @@ def answered_cdr_report(request: HttpRequest) -> JsonResponse:
     data = [dict(zip(columns, row)) for row in rows]
 
     return JsonResponse({"data": data})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def unanswered_cdr_report(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    queues = _normalize_list(payload.get("queues") or payload.get("queue"))
+    callerid_search = (payload.get("callerid") or payload.get("callerid_search") or "").strip()
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    if not end:
+        end = datetime.now().replace(hour=23, minute=59, second=59)
+    if not start:
+        start = end.replace(hour=0, minute=0, second=0)
+
+    if callerid_search:
+        sql = """
+            SELECT time, callid, queuename, agent, event, data1, data2, data3
+            FROM queuelog
+            WHERE time >= %s AND time <= %s
+              AND event IN ('ABANDON','EXITWITHTIMEOUT','ENTERQUEUE')
+              AND callid IN (
+                  SELECT DISTINCT callid
+                  FROM queuelog
+                  WHERE time >= %s AND time <= %s AND data2 LIKE %s
+              )
+            ORDER BY callid, time
+            LIMIT 50000
+        """
+        params: List[Any] = [start, end, start, end, f"%{callerid_search}%"]
+    else:
+        queue_clause = ""
+        params = [start, end]
+        if queues:
+            queue_clause = f" AND queuename IN ({','.join(['%s'] * len(queues))})"
+            params.extend(queues)
+        sql = f"""
+            SELECT time, callid, queuename, agent, event, data1, data2, data3
+            FROM queuelog
+            WHERE time >= %s AND time <= %s
+              {queue_clause}
+              AND event IN ('ABANDON','EXITWITHTIMEOUT','ENTERQUEUE')
+            ORDER BY callid, time
+            LIMIT 50000
+        """
+
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    records = _join_enterqueue_callerids([dict(zip(columns, row)) for row in rows])
+    return JsonResponse({"data": records, "count": len(records)})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def outbound_report(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    agents = _normalize_list(payload.get("agents") or payload.get("agent"))
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    if not end:
+        end = datetime.now().replace(hour=23, minute=59, second=59)
+    if not start:
+        start = end.replace(hour=0, minute=0, second=0)
+
+    params: List[Any] = [start, end]
+    agent_clause = ""
+    if agents:
+        agent_clause = f" AND cnam IN ({','.join(['%s'] * len(agents))})"
+        params.extend(agents)
+
+    sql = f"""
+        SELECT calldate, uniqueid, billsec, disposition, src, dst, cnum, cnam, recordingfile
+        FROM cdr
+        WHERE calldate >= %s AND calldate <= %s
+        {agent_clause}
+        ORDER BY calldate DESC
+        LIMIT 50000
+    """
+
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    records = [dict(zip(columns, row)) for row in rows]
+    overview: Dict[str, Dict[str, int]] = defaultdict(lambda: {"ANSWERED": 0, "NO ANSWER": 0, "BUSY": 0, "TOTAL": 0})
+    for row in records:
+        agent = str(row.get("cnum") or row.get("cnam") or "UNKNOWN")
+        disp = str(row.get("disposition") or "")
+        if disp in overview[agent]:
+            overview[agent][disp] += 1
+        overview[agent]["TOTAL"] += 1
+
+    return JsonResponse({"data": records, "overview": overview})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def dids_report(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    if not end:
+        end = datetime.now().replace(hour=23, minute=59, second=59)
+    if not start:
+        start = end.replace(hour=0, minute=0, second=0)
+
+    sql = """
+        SELECT callid, event, data1
+        FROM queuelog
+        WHERE time >= %s AND time <= %s
+          AND event IN ('COMPLETEAGENT','COMPLETECALLER','DID','ABANDON')
+        ORDER BY callid DESC
+    """
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, [start, end])
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    events_by_call: Dict[str, Dict[str, int]] = defaultdict(lambda: {"ABN": 0, "ANS": 0})
+    did_by_call: Dict[str, str] = {}
+    for row in [dict(zip(columns, r)) for r in rows]:
+        callid = str(row["callid"])
+        event = str(row["event"])
+        if event == "DID":
+            did_by_call[callid] = str(row.get("data1") or "")
+        elif event == "ABANDON":
+            events_by_call[callid]["ABN"] = 1
+        elif event in {"COMPLETEAGENT", "COMPLETECALLER"}:
+            events_by_call[callid]["ANS"] = 1
+
+    counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"ABN": 0, "ANS": 0, "ALL": 0})
+    for callid, did in did_by_call.items():
+        if not did:
+            continue
+        counts[did]["ABN"] += events_by_call[callid]["ABN"]
+        counts[did]["ANS"] += events_by_call[callid]["ANS"]
+        counts[did]["ALL"] += 1
+
+    totals = {"ABN": 0, "ANS": 0, "ALL": 0}
+    for value in counts.values():
+        totals["ABN"] += value["ABN"]
+        totals["ANS"] += value["ANS"]
+        totals["ALL"] += value["ALL"]
+    counts["Всего"] = totals
+
+    result = [{"did": did, **stats} for did, stats in sorted(counts.items(), key=lambda x: x[0])]
+    return JsonResponse({"data": result})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def trunks_report(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    queues = _normalize_list(payload.get("queues") or payload.get("queue"))
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    if not end:
+        end = datetime.now().replace(hour=23, minute=59, second=59)
+    if not start:
+        start = end.replace(hour=0, minute=0, second=0)
+
+    params: List[Any] = [start, end]
+    queue_clause = ""
+    if queues:
+        queue_clause = f" AND dst IN ({','.join(['%s'] * len(queues))})"
+        params.extend(queues)
+
+    sql = f"""
+        SELECT channel, lastapp
+        FROM cdr
+        WHERE calldate >= %s AND calldate <= %s
+          AND disposition = 'ANSWERED'
+          {queue_clause}
+    """
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    trunk_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {"ABN": 0, "ANS": 0, "ALL": 0})
+    for row in [dict(zip(columns, r)) for r in rows]:
+        channel = str(row.get("channel") or "")
+        trunk = channel.split("-")[0] if "-" in channel else channel
+        lastapp = str(row.get("lastapp") or "")
+        if lastapp == "Queue":
+            trunk_stats[trunk]["ANS"] += 1
+        else:
+            trunk_stats[trunk]["ABN"] += 1
+        trunk_stats[trunk]["ALL"] += 1
+
+    totals = {"ABN": 0, "ANS": 0, "ALL": 0}
+    for value in trunk_stats.values():
+        totals["ABN"] += value["ABN"]
+        totals["ANS"] += value["ANS"]
+        totals["ALL"] += value["ALL"]
+    trunk_stats["Всего"] = totals
+
+    result = [{"trunk": trunk, **stats} for trunk, stats in sorted(trunk_stats.items(), key=lambda x: x[0])]
+    return JsonResponse({"data": result})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def queue_search(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    callerid = (payload.get("callerid") or "").strip()
+    uniqueid = (payload.get("uniqueid") or "").strip()
+    include_ringnoanswer = _parse_bool(payload.get("include_ringnoanswer"), default=True)
+    alltime = _parse_bool(payload.get("alltime"), default=False)
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    where: List[str] = []
+    params: List[Any] = []
+    if not alltime:
+        if not end:
+            end = datetime.now().replace(hour=23, minute=59, second=59)
+        if not start:
+            start = end.replace(hour=0, minute=0, second=0)
+        where.extend(["time >= %s", "time <= %s"])
+        params.extend([start, end])
+
+    if callerid:
+        where.append("callid IN (SELECT DISTINCT callid FROM queuelog WHERE data2 LIKE %s)")
+        params.append(f"%{callerid}%")
+    if uniqueid:
+        where.append("callid = %s")
+        params.append(uniqueid)
+    if not include_ringnoanswer:
+        where.append("event <> 'RINGNOANSWER'")
+
+    sql = """
+        SELECT time, callid, queuename, agent, event, data1, data2, data3, data4, data5
+        FROM queuelog
+    """
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY time DESC LIMIT 50000"
+
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    return JsonResponse({"events": [dict(zip(columns, r)) for r in rows]})
 
 
 @csrf_exempt
@@ -660,6 +948,192 @@ def agent_performance_report(request: HttpRequest) -> JsonResponse:
     )
 
 
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def areport_legacy(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    queues = _normalize_list(payload.get("queues") or payload.get("queue"))
+    agents_filter = _normalize_list(payload.get("agents") or payload.get("agent"))
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    if not end:
+        end = datetime.now().replace(hour=23, minute=59, second=59)
+    if not start:
+        start = (end - timedelta(days=6)).replace(hour=0, minute=0, second=0)
+
+    params: List[Any] = [start, end]
+    queue_clause = ""
+    agent_clause = ""
+    if queues:
+        queue_clause = f" AND queuename IN ({','.join(['%s'] * len(queues))})"
+        params.extend(queues)
+    if agents_filter:
+        agent_clause = f" AND agent IN ({','.join(['%s'] * len(agents_filter))})"
+        params.extend(agents_filter)
+
+    sql = f"""
+        SELECT time, callid, agent, event, data1, data2, data3, data4
+        FROM queuelog
+        WHERE time >= %s AND time <= %s
+          {queue_clause}
+          {agent_clause}
+          AND agent IS NOT NULL AND agent <> ''
+        ORDER BY time
+    """
+
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    by_day_agent: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(
+        lambda: defaultdict(
+            lambda: {
+                "talk_sec": 0,
+                "calls": 0,
+                "pause_start": None,
+                "pause_sec": 0,
+                "transfer_hold_sec": 0,
+                "rna": 0,
+                "add_times": [],
+                "remove_times": [],
+            }
+        )
+    )
+
+    for row in [dict(zip(columns, r)) for r in rows]:
+        dt = row.get("time")
+        if not isinstance(dt, datetime):
+            dt = datetime.fromisoformat(str(dt))
+        day = dt.date().isoformat()
+        agent = str(row.get("agent") or "").strip()
+        event = str(row.get("event") or "")
+        bucket = by_day_agent[day][agent]
+
+        if event in {"COMPLETECALLER", "COMPLETEAGENT"}:
+            bucket["talk_sec"] += int(row.get("data2") or 0)
+            bucket["calls"] += 1
+        elif event == "PAUSE":
+            bucket["pause_start"] = dt
+        elif event == "UNPAUSE":
+            pause_start = bucket.get("pause_start")
+            if isinstance(pause_start, datetime) and dt >= pause_start:
+                bucket["pause_sec"] += int((dt - pause_start).total_seconds())
+            bucket["pause_start"] = None
+        elif event in {"BLINDTRANSFER", "ATTENDEDTRANSFER"}:
+            bucket["transfer_hold_sec"] += int(row.get("data3") or 0) + int(row.get("data4") or 0)
+        elif event == "RINGNOANSWER" and int(row.get("data1") or 0) > 1500:
+            bucket["rna"] += 1
+        elif event == "ADDMEMBER" and str(row.get("callid") or "") == "MANAGER":
+            bucket["add_times"].append(dt)
+        elif event == "REMOVEMEMBER" and str(row.get("callid") or "") == "MANAGER":
+            bucket["remove_times"].append(dt)
+
+    rows_out: List[Dict[str, Any]] = []
+    for day in sorted(by_day_agent.keys()):
+        for agent in sorted(by_day_agent[day].keys()):
+            bucket = by_day_agent[day][agent]
+            add_times = sorted(bucket["add_times"])
+            remove_times = sorted(bucket["remove_times"])
+            if add_times and remove_times:
+                work_sec = max(0, int((remove_times[-1] - add_times[0]).total_seconds()))
+            else:
+                work_sec = 9 * 60 * 60
+            free_sec = max(0, work_sec - bucket["talk_sec"] - bucket["pause_sec"])
+            calls = bucket["calls"]
+            rows_out.append(
+                {
+                    "day": day,
+                    "agent": agent,
+                    "incall_min": round(bucket["talk_sec"] / 60),
+                    "pause_min": round(bucket["pause_sec"] / 60),
+                    "free_min": round(free_sec / 60),
+                    "transfer_hold_min": round(bucket["transfer_hold_sec"] / 60),
+                    "calls": calls,
+                    "avg_talk_sec": round(bucket["talk_sec"] / calls, 2) if calls else 0,
+                    "rna": bucket["rna"],
+                }
+            )
+
+    return JsonResponse(
+        {
+            "interval": {"start": start.isoformat(sep=" "), "end": end.isoformat(sep=" ")},
+            "queues": queues,
+            "agents_filter": agents_filter,
+            "rows": rows_out,
+        }
+    )
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+@require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
+def qreport_legacy(request: HttpRequest) -> JsonResponse:
+    payload = _parse_request_payload(request)
+    queues = _normalize_list(payload.get("queues") or payload.get("queue"))
+    start = _parse_datetime(payload.get("start"))
+    end = _parse_datetime(payload.get("end"))
+
+    if not end:
+        end = datetime.now().replace(hour=23, minute=59, second=59)
+    if not start:
+        start = (end - timedelta(days=6)).replace(hour=0, minute=0, second=0)
+
+    params: List[Any] = [start, end]
+    queue_clause = ""
+    if queues:
+        queue_clause = f" AND queuename IN ({','.join(['%s'] * len(queues))})"
+        params.extend(queues)
+
+    sql = f"""
+        SELECT time, agent, queuename, event, data3
+        FROM queuelog
+        WHERE time >= %s AND time <= %s
+          {queue_clause}
+          AND event IN ('CONNECT', 'ENTERQUEUE', 'COMPLETECALLER', 'COMPLETEAGENT', 'RINGNOANSWER')
+        ORDER BY time
+    """
+
+    with connections["asterisk"].cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    by_day_hour: Dict[str, Dict[int, Dict[str, Any]]] = defaultdict(lambda: defaultdict(lambda: {"dep": 0, "agents": set()}))
+    for row in [dict(zip(columns, r)) for r in rows]:
+        dt = row.get("time")
+        if not isinstance(dt, datetime):
+            dt = datetime.fromisoformat(str(dt))
+        day = dt.date().isoformat()
+        hour = dt.hour
+        event = str(row.get("event") or "")
+
+        if event == "ENTERQUEUE":
+            depth = int(row.get("data3") or 0)
+            if depth > by_day_hour[day][hour]["dep"]:
+                by_day_hour[day][hour]["dep"] = depth
+        if event in {"COMPLETECALLER", "COMPLETEAGENT", "RINGNOANSWER"}:
+            agent = str(row.get("agent") or "").strip()
+            if agent:
+                by_day_hour[day][hour]["agents"].add(agent)
+
+    result: List[Dict[str, Any]] = []
+    for day in sorted(by_day_hour.keys()):
+        dep = {str(h): int(by_day_hour[day][h]["dep"]) for h in range(24)}
+        agents = {str(h): len(by_day_hour[day][h]["agents"]) for h in range(24)}
+        result.append({"day": day, "dep": dep, "agents": agents})
+
+    return JsonResponse(
+        {
+            "interval": {"start": start.isoformat(sep=" "), "end": end.isoformat(sep=" ")},
+            "queues": queues,
+            "rows": result,
+        }
+    )
+
+
 import socket
 
 class AmiClient:
@@ -767,11 +1241,23 @@ def active_calls(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 @login_required_json
+def active_calls_legacy(request: HttpRequest) -> JsonResponse:
+    return active_calls(request)
+
+
+@require_GET
+@login_required_json
 def queue_status(request: HttpRequest) -> JsonResponse:
     if request.user.role not in {UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT}:
         return JsonResponse({"detail": "forbidden"}, status=403)
     data = _ami_response("QueueStatus")
     return JsonResponse(data)
+
+
+@require_GET
+@login_required_json
+def queue_status_legacy(request: HttpRequest) -> JsonResponse:
+    return queue_status(request)
 
 
 @require_GET

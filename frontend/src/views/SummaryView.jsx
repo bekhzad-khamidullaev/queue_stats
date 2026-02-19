@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import ReportFilters from "../components/ReportFilters.jsx";
 import client from "../api/client.js";
+import { buildQueueNameMap, formatQueueName } from "../utils/displayNames.js";
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#a855f7", "#f97316"];
 
@@ -35,6 +36,7 @@ export default function SummaryView({ queues, agents }) {
     const [report, setReport] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
 
     const loadReport = async (filters) => {
         try {
@@ -49,7 +51,10 @@ export default function SummaryView({ queues, agents }) {
         }
     };
 
-    const queueData = Object.entries(report?.calls_per_queue || {}).map(([name, value]) => ({ name, value }));
+    const queueData = Object.entries(report?.calls_per_queue || {}).map(([name, value]) => ({
+        name: formatQueueName(name, queueNameMap),
+        value,
+    }));
 
     return (
         <div className="view">

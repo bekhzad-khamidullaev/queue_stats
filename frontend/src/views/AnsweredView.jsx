@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ReportFilters from "../components/ReportFilters.jsx";
 import client from "../api/client.js";
+import { buildAgentNameMap, buildQueueNameMap, formatAgentName, formatQueueName } from "../utils/displayNames.js";
 
 export default function AnsweredView({ queues, agents }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
+  const agentNameMap = useMemo(() => buildAgentNameMap(agents), [agents]);
 
   const loadReport = async (filters) => {
     try {
@@ -64,7 +67,7 @@ export default function AnsweredView({ queues, agents }) {
                 <tbody>
                   {report.agents.map((agent) => (
                     <tr key={agent.agent}>
-                      <td>{agent.agent}</td>
+                      <td>{formatAgentName(agent.agent, agentNameMap)}</td>
                       <td>{agent.calls}</td>
                       <td>{agent.calls_percent}</td>
                       <td>{Math.round(agent.talk_time_total / 60)}</td>
@@ -96,7 +99,7 @@ export default function AnsweredView({ queues, agents }) {
                 <tbody>
                   {Object.entries(report.response_distribution).map(([queue, stats]) => (
                     <tr key={queue}>
-                      <td>{queue}</td>
+                      <td>{formatQueueName(queue, queueNameMap)}</td>
                       <td>{stats["0-5"]}</td>
                       <td>{stats["6-10"]}</td>
                       <td>{stats["11-15"]}</td>
@@ -116,4 +119,3 @@ export default function AnsweredView({ queues, agents }) {
     </div>
   );
 }
-

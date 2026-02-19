@@ -124,14 +124,6 @@ def _sqlite_database() -> Dict[str, Any]:
         "NAME": BASE_DIR / "db.sqlite3",
     }
 
-# Load Asterisk DB config from file if it exists
-asterisk_db_config_path = BASE_DIR / "asterisk_db.json"
-if asterisk_db_config_path.exists():
-    with open(asterisk_db_config_path) as f:
-        DATABASES["asterisk"] = json.load(f)
-
-
-
 DATABASE_ENGINE = os.getenv("DB_ENGINE", "mysql").lower()
 
 if DATABASE_ENGINE == "sqlite":
@@ -139,11 +131,20 @@ if DATABASE_ENGINE == "sqlite":
 else:
     DATABASES = {"default": _mysql_database()}
 
+# Optional external Asterisk DB alias used by report queries.
+asterisk_db_config_path = BASE_DIR / "asterisk_db.json"
+if asterisk_db_config_path.exists():
+    with open(asterisk_db_config_path) as f:
+        DATABASES["asterisk"] = json.load(f)
+else:
+    DATABASES["asterisk"] = DATABASES["default"].copy()
+
 if 'test' in sys.argv:
     DATABASES['default'] = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': ':memory:',
     }
+    DATABASES['asterisk'] = DATABASES['default']
 
 
 # --- Password validation -----------------------------------------------------

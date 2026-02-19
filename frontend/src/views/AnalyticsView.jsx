@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { exportDataToCsv } from "../utils/export.js";
 import ReportFilters from "../components/ReportFilters.jsx";
 import client from "../api/client.js";
+import { buildAgentNameMap, buildQueueNameMap, formatAgentName, formatQueueName } from "../utils/displayNames.js";
 import {
   ResponsiveContainer,
   LineChart,
@@ -32,6 +33,8 @@ const formatDateLabel = (value) => {
 };
 
 export default function AnalyticsView({ queues, agents }) {
+  const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
+  const agentNameMap = useMemo(() => buildAgentNameMap(agents), [agents]);
   const [volumeReport, setVolumeReport] = useState(null);
   const [volumeLoading, setVolumeLoading] = useState(false);
   const [volumeError, setVolumeError] = useState(null);
@@ -126,22 +129,25 @@ export default function AnalyticsView({ queues, agents }) {
       return [];
     }
     return volumeReport.per_queue.map((row) => ({
-      queue: row.queuename,
+      queue: formatQueueName(row.queuename, queueNameMap),
       answered: toNumber(row.answered),
       unanswered: toNumber(row.unanswered),
     }));
-  }, [volumeReport]);
+  }, [volumeReport, queueNameMap]);
 
   const topAgents = useMemo(() => {
     if (!agentReport?.agents) {
       return [];
     }
-    return agentReport.agents.slice(0, 8);
-  }, [agentReport]);
+    return agentReport.agents.slice(0, 8).map((row) => ({
+      ...row,
+      label: formatAgentName(row.agent, agentNameMap),
+    }));
+  }, [agentReport, agentNameMap]);
 
   const agentTalkSeries = useMemo(() => {
     return topAgents.map((row) => ({
-      agent: row.agent,
+      agent: row.label,
       talkMinutes: Math.round(toNumber(row.talk_time) / 60),
       avgTalk: toNumber(row.avg_talk_time),
       avgWait: toNumber(row.avg_wait_time),
@@ -423,7 +429,7 @@ export default function AnalyticsView({ queues, agents }) {
                           key={agent.agent}
                           type="monotone"
                           dataKey={agent.agent}
-                          name={agent.agent}
+                          name={agent.label}
                           strokeWidth={2}
                           stroke={palette[index % palette.length]}
                         />

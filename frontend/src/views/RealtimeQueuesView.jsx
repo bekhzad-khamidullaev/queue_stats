@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import client from "../api/client.js";
+import { buildAgentNameMap, buildQueueNameMap, formatAgentName, formatQueueName } from "../utils/displayNames.js";
 
-export default function RealtimeQueuesView() {
+export default function RealtimeQueuesView({ queues, agents }) {
   const [summary, setSummary] = useState([]);
   const [status, setStatus] = useState([]);
   const [error, setError] = useState(null);
+  const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
+  const agentNameMap = useMemo(() => buildAgentNameMap(agents), [agents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +61,7 @@ export default function RealtimeQueuesView() {
             <tbody>
               {summary.map((item, index) => (
                 <tr key={index}>
-                  <td>{item.Queue}</td>
+                  <td>{formatQueueName(item.Queue, queueNameMap)}</td>
                   <td>{item.NumWaiting}</td>
                   <td>{item.CallsTaken}</td>
                   <td>{item.AgentsFree}</td>
@@ -84,8 +87,8 @@ export default function RealtimeQueuesView() {
             <tbody>
               {status.map((item, index) => (
                 <tr key={index}>
-                  <td>{item.Queue}</td>
-                  <td>{item.Interface}</td>
+                  <td>{formatQueueName(item.Queue, queueNameMap)}</td>
+                  <td>{formatAgentName(item.Interface, agentNameMap)}</td>
                   <td>{item.Status}</td>
                   <td>{item.Paused}</td>
                   <td>{item.Completed}</td>
@@ -99,4 +102,3 @@ export default function RealtimeQueuesView() {
     </div>
   );
 }
-

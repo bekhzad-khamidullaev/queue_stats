@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ReportFilters from "../components/ReportFilters.jsx";
 import client from "../api/client.js";
+import { buildQueueNameMap, formatQueueName } from "../utils/displayNames.js";
 
 export default function UnansweredView({ queues }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const queueNameMap = useMemo(() => buildQueueNameMap(queues), [queues]);
 
   const loadReport = async (filters) => {
     try {
@@ -79,7 +81,7 @@ export default function UnansweredView({ queues }) {
                 <tbody>
                   {Object.entries(report.distribution).map(([queue, stats]) => (
                     <tr key={queue}>
-                      <td>{queue}</td>
+                      <td>{formatQueueName(queue, queueNameMap)}</td>
                       <td>{stats["0-10"]}</td>
                       <td>{stats["11-20"]}</td>
                       <td>{stats["21-30"]}</td>
@@ -98,4 +100,3 @@ export default function UnansweredView({ queues }) {
     </div>
   );
 }
-

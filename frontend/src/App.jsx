@@ -5,10 +5,17 @@ import AnsweredView from "./views/AnsweredView.jsx";
 import UnansweredView from "./views/UnansweredView.jsx";
 import SummaryView from "./views/SummaryView.jsx";
 import DistributionView from "./views/DistributionView.jsx";
+import AnalyticsView from "./views/AnalyticsView.jsx";
 import RealtimeCallsView from "./views/RealtimeCallsView.jsx";
 import RealtimeQueuesView from "./views/RealtimeQueuesView.jsx";
 import RawEventsView from "./views/RawEventsView.jsx";
 import AnsweredCdrView from "./views/AnsweredCdrView.jsx";
+import UnansweredCdrView from "./views/UnansweredCdrView.jsx";
+import OutboundView from "./views/OutboundView.jsx";
+import SearchView from "./views/SearchView.jsx";
+import InboundView from "./views/InboundView.jsx";
+import AgentDailyView from "./views/AgentDailyView.jsx";
+import QueueHourlyView from "./views/QueueHourlyView.jsx";
 import UserAdminView from "./views/UserAdminView.jsx";
 import LoginView from "./views/LoginView.jsx";
 import AMIControlView from "./views/AMIControlView.jsx";
@@ -18,9 +25,16 @@ const VIEWS = [
   { id: "answered", label: "Принятые", component: AnsweredView, permission: "answered" },
   { id: "unanswered", label: "Непринятые", component: UnansweredView, permission: "unanswered" },
   { id: "answered-cdr", label: "Принятые (CDR)", component: AnsweredCdrView, permission: "answered" },
+  { id: "unanswered-cdr", label: "Непринятые (CDR)", component: UnansweredCdrView, permission: "unanswered" },
+  { id: "outbound", label: "Исходящие", component: OutboundView, permission: "answered" },
   { id: "distribution", label: "Распределение", component: DistributionView, permission: "distribution" },
+  { id: "agent-daily", label: "По агентам (даты)", component: AgentDailyView, permission: "distribution" },
+  { id: "queue-hourly", label: "По очередям (часы)", component: QueueHourlyView, permission: "distribution" },
+  { id: "analytics", label: "Аналитика", component: AnalyticsView, permission: "distribution" },
+  { id: "inbound", label: "Входящие (DID/Trunk)", component: InboundView, permission: "distribution" },
   { id: "realtime-calls", label: "Звонки онлайн", component: RealtimeCallsView, permission: "realtime" },
   { id: "realtime-queues", label: "Очереди онлайн", component: RealtimeQueuesView, permission: "realtime" },
+  { id: "search", label: "Поиск", component: SearchView, permission: "raw" },
   { id: "ami-control", label: "Управление AMI", component: AMIControlView, permission: "admin" },
   { id: "raw", label: "Сырые события", component: RawEventsView, permission: "raw" },
   { id: "users", label: "Пользователи", component: UserAdminView, permission: "admin" },

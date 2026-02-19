@@ -1,18 +1,21 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import client from "../api/client.js";
+import { buildAgentNameMap, buildQueueNameMap, formatAgentName, formatQueueName } from "../utils/displayNames.js";
 
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const WEBSOCKET_URL = `${protocol}//${window.location.host}/ws/realtime/`;
 
-export default function AMIControlView() {
+export default function AMIControlView({ queues: metaQueues, agents }) {
   const [activeTab, setActiveTab] = useState("queues");
-  const [queues, setQueues] = useState([]);
+  const [queueStatus, setQueueStatus] = useState([]);
   const [channels, setChannels] = useState([]);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [ws, setWs] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const queueNameMap = useMemo(() => buildQueueNameMap(metaQueues), [metaQueues]);
+  const agentNameMap = useMemo(() => buildAgentNameMap(agents), [agents]);
 
   // Call origination state
   const [originateForm, setOriginateForm] = useState({
@@ -87,7 +90,7 @@ export default function AMIControlView() {
     try {
       setLoading(true);
       const response = await client.get("/ami/queue/status/");
-      setQueues(response.data.queues || []);
+      setQueueStatus(response.data.queues || []);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -117,11 +120,11 @@ export default function AMIControlView() {
     }
   }, [activeTab, loadQueues, loadChannels]);
 
-  const handlePauseMember = async (queue, interface, paused) => {
+  const handlePauseMember = async (queue, iface, paused) => {
     try {
       await client.post("/ami/queue/pause/", {
         queue,
-        interface,
+        interface: iface,
         paused
       });
       loadQueues();
@@ -130,10 +133,10 @@ export default function AMIControlView() {
     }
   };
 
-  const handleRemoveMember = async (queue, interface) => {
-    if (!confirm(`Удалить агента ${interface} из очереди ${queue}?`)) return;
+  const handleRemoveMember = async (queue, iface) => {
+    if (!confirm(`Удалить агента ${iface} из очереди ${queue}?`)) return;
     try {
-      await client.post("/ami/queue/remove/", { queue, interface });
+      await client.post("/ami/queue/remove/", { queue, interface: iface });
       loadQueues();
     } catch (err) {
       alert(`Ошибка: ${err.message}`);
@@ -236,12 +239,12 @@ export default function AMIControlView() {
               </button>
             </div>
             
-            {queues.length === 0 ? (
+            {queueStatus.length === 0 ? (
               <div className="muted">Нет данных об очередях</div>
             ) : (
-              queues.map((queue, idx) => (
+              queueStatus.map((queue, idx) => (
                 <div key={idx} className="card" style={{ marginBottom: "1rem" }}>
-                  <h4>{queue.Queue || "Неизвестная очередь"}</h4>
+                  <h4>{formatQueueName(queue.Queue, queueNameMap) || "Неизвестная очередь"}</h4>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "1rem", marginBottom: "1rem" }}>
                     <div>
                       <div className="muted">Макс. ожидание</div>
@@ -282,8 +285,8 @@ export default function AMIControlView() {
                         <tbody>
                           {queue.members.map((member, midx) => (
                             <tr key={midx}>
-                              <td>{member.Location || member.Interface}</td>
-                              <td>{member.MemberName || member.Name || "N/A"}</td>
+                              <td>{formatAgentName(member.Location || member.Interface, agentNameMap)}</td>
+                              <td>{member.MemberName || member.Name || formatAgentName(member.Interface, agentNameMap) || "N/A"}</td>
                               <td>
                                 <span style={{
                                   padding: "0.25rem 0.5rem",
@@ -302,18 +305,22 @@ export default function AMIControlView() {
                                   <button
                                     className="button"
                                     style={{ fontSize: "0.85rem", padding: "0.25rem 0.5rem" }}
-                                    onClick={() => handlePauseMember(
-                                      queue.Queue,
-                                      member.Location || member.Interface,
-                                      member.Paused !== "1"
-                                    )}
+                                    onClick={() =>
+                                      handlePauseMember(
+                                        queue.Queue,
+                                        member.Location || member.Interface,
+                                        member.Paused !== "1",
+                                      )
+                                    }
                                   >
                                     {member.Paused === "1" ? "Активировать" : "Пауза"}
                                   </button>
                                   <button
                                     className="button"
                                     style={{ fontSize: "0.85rem", padding: "0.25rem 0.5rem", background: "#e5484d" }}
-                                    onClick={() => handleRemoveMember(queue.Queue, member.Location || member.Interface)}
+                                    onClick={() =>
+                                      handleRemoveMember(queue.Queue, member.Location || member.Interface)
+                                    }
                                   >
                                     Удалить
                                   </button>
@@ -360,7 +367,7 @@ export default function AMIControlView() {
                       <td>{channel.Channel}</td>
                       <td>{channel.CallerIDNum || "N/A"}</td>
                       <td>{channel.ChannelStateDesc || channel.State}</td>
-                      <td>{channel.Context}</td>
+                      <td>{formatQueueName(channel.Context, queueNameMap)}</td>
                       <td>{channel.Duration || 0}s</td>
                       <td>
                         <button
