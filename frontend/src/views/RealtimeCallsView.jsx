@@ -13,7 +13,7 @@ export default function RealtimeCallsView({ queues }) {
 
     async function load() {
       try {
-        const response = await client.get("/realtime/calls/");
+        const response = await client.get("/realtime/active-calls/");
         if (!cancelled) {
           setData(response.data.entries ?? []);
           setError(null);

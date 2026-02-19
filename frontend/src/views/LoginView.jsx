@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 export default function LoginView() {
   const { login, error } = useAuth();
   const [credentials, setCredentials] = useState({ username: "", password: "" });
+  const [remember, setRemember] = useState(true);
   const [submissionError, setSubmissionError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -12,7 +13,7 @@ export default function LoginView() {
     setSubmitting(true);
     setSubmissionError(null);
     try {
-      await login(credentials);
+      await login(credentials, remember);
     } catch (err) {
       setSubmissionError(err.response?.data?.detail || err.message);
     } finally {
@@ -42,6 +43,17 @@ export default function LoginView() {
               onChange={(event) => setCredentials((prev) => ({ ...prev, password: event.target.value }))}
             />
           </div>
+          <div className="filters__column" style={{ width: "100%" }}>
+            <label htmlFor="remember" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input
+                id="remember"
+                type="checkbox"
+                checked={remember}
+                onChange={(event) => setRemember(event.target.checked)}
+              />
+              Запомнить меня
+            </label>
+          </div>
           <button type="submit" disabled={submitting}>
             {submitting ? "Проверяем…" : "Войти"}
           </button>
@@ -55,4 +67,3 @@ export default function LoginView() {
     </div>
   );
 }
-

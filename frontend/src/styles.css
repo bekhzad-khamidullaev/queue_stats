@@ -125,6 +125,22 @@ body {
   font-size: 0.95rem;
 }
 
+.filters input[type="datetime-local"] {
+  padding: 0.55rem 0.75rem;
+}
+
+.filters__buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.filters__buttons button {
+  width: auto;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+}
+
 .filters button {
   background-color: #2b67f6;
   color: #fff;

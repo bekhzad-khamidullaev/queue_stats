@@ -79,7 +79,9 @@ def _join_enterqueue_callerids(rows: List[Dict[str, Any]]) -> List[Dict[str, Any
 @require_GET
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT)
 def queues_list(request: HttpRequest) -> JsonResponse:
-    items = list(QueuesNew.objects.order_by("queuename").values("queuename", "descr"))
+    items = list(QueuesNew.objects.order_by("queuename").values("queuename"))
+    for item in items:
+        item['descr'] = item['queuename']
     return JsonResponse({"queues": items})
 
 
