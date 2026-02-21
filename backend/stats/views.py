@@ -114,7 +114,7 @@ def _fetch_queuelog_rows(
     if agent_params:
         sql += f" AND agent IN ({','.join(['%s'] * len(agent_params))})"
         params.extend(agent_params)
-    with connections['asterisk'].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
@@ -466,7 +466,7 @@ def answered_cdr_report(request: HttpRequest) -> JsonResponse:
         LIMIT 1000
     """
 
-    with connections['asterisk'].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -522,7 +522,7 @@ def unanswered_cdr_report(request: HttpRequest) -> JsonResponse:
             LIMIT 50000
         """
 
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -560,7 +560,7 @@ def outbound_report(request: HttpRequest) -> JsonResponse:
         LIMIT 50000
     """
 
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -597,7 +597,7 @@ def dids_report(request: HttpRequest) -> JsonResponse:
           AND event IN ('COMPLETEAGENT','COMPLETECALLER','DID','ABANDON')
         ORDER BY callid DESC
     """
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, [start, end])
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -660,7 +660,7 @@ def trunks_report(request: HttpRequest) -> JsonResponse:
           AND disposition = 'ANSWERED'
           {queue_clause}
     """
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -726,7 +726,7 @@ def queue_search(request: HttpRequest) -> JsonResponse:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY time DESC LIMIT 50000"
 
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -768,7 +768,7 @@ def sla_report(request: HttpRequest) -> JsonResponse:
         ORDER BY day
     """
 
-    with connections['asterisk'].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -838,7 +838,7 @@ def volume_report(request: HttpRequest) -> JsonResponse:
         ORDER BY answered DESC
     """
 
-    with connections['asterisk'].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql_daily, params)
         daily_rows = cursor.fetchall()
         daily_columns = [col[0] for col in cursor.description]
@@ -918,7 +918,7 @@ def agent_performance_report(request: HttpRequest) -> JsonResponse:
         ORDER BY agent, day
     """
 
-    with connections['asterisk'].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql_agents, params)
         agent_rows = cursor.fetchall()
         agent_columns = [col[0] for col in cursor.description]
@@ -985,7 +985,7 @@ def areport_legacy(request: HttpRequest) -> JsonResponse:
         ORDER BY time
     """
 
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -1098,7 +1098,7 @@ def qreport_legacy(request: HttpRequest) -> JsonResponse:
         ORDER BY time
     """
 
-    with connections["asterisk"].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -1282,7 +1282,7 @@ def get_recording(request: HttpRequest, uniqueid: str) -> FileResponse:
     if not uniqueid or not all(c.isalnum() or c in ".-" for c in uniqueid):
         raise Http404("Invalid uniqueid")
 
-    with connections['asterisk'].cursor() as cursor:
+    with connections['default'].cursor() as cursor:
         cursor.execute("SELECT recordingfile FROM cdr WHERE uniqueid = %s", [uniqueid])
         row = cursor.fetchone()
 
