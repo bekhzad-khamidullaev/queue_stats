@@ -19,6 +19,31 @@ ALLOWED_HOSTS: list[str] = [
     host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if host.strip()
 ]
 
+
+def _as_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _split_csv(name: str) -> list[str]:
+    return [value.strip() for value in os.getenv(name, "").split(",") if value.strip()]
+
+
+def _default_csrf_trusted_origins() -> list[str]:
+    origins: list[str] = []
+    for host in ALLOWED_HOSTS:
+        clean_host = host.strip().lstrip(".")
+        if not clean_host or clean_host == "*":
+            continue
+        if clean_host in {"localhost", "127.0.0.1", "[::1]"}:
+            origins.append(f"http://{clean_host}")
+            origins.append(f"https://{clean_host}")
+            continue
+        origins.append(f"https://{clean_host}")
+        if DEBUG:
+            origins.append(f"http://{clean_host}")
+    # Preserve declaration order and remove duplicates.
+    return list(dict.fromkeys(origins))
+
 # --- Applications ------------------------------------------------------------
 
 INSTALLED_APPS = [
@@ -58,6 +83,7 @@ else:
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "settings.language_middleware.SettingsLanguageMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -73,6 +99,7 @@ TEMPLATES = [
         "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
+            "builtins": ["stats.templatetags.i18n_extras"],
             "context_processors": [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
@@ -141,6 +168,7 @@ LANGUAGE_CODE = "ru-ru"
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
+LANGUAGES = [("ru", "Russian"), ("en", "English"), ("uz", "Uzbek")]
 
 # --- Static files ------------------------------------------------------------
 
@@ -163,3 +191,13 @@ ASTERISK_AJAM_AUTHTYPE = os.getenv("ASTERISK_AJAM_AUTHTYPE", "plaintext")
 
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
+
+CSRF_TRUSTED_ORIGINS = _split_csv("DJANGO_CSRF_TRUSTED_ORIGINS") or _default_csrf_trusted_origins()
+USE_X_FORWARDED_HOST = _as_bool("DJANGO_USE_X_FORWARDED_HOST", "true")
+if _as_bool("DJANGO_TRUST_X_FORWARDED_PROTO", "true"):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Browser ignores COOP on non-trustworthy origins (plain HTTP IP), so keep it opt-in.
+SECURE_CROSS_ORIGIN_OPENER_POLICY = (
+    "same-origin" if os.getenv("DJANGO_ENABLE_COOP", "false").lower() == "true" else None
+)

@@ -1,0 +1,107 @@
+{% extends "stats/base.html" %}
+{% block title %}Settings{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <h1 class="text-xl font-semibold mb-2">{% tr "Настройки системы" %}</h1>
+  {% if notice %}<p class="text-green-300 mb-3">{{ notice }}</p>{% endif %}
+
+  <form method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    {% csrf_token %}
+    <input type="hidden" name="section" value="general" />
+    <label class="text-sm">{% tr "Валюта" %}
+      <select name="currency_code" class="radix-input">
+        {% for c in currency_choices %}<option value="{{ c }}"{% if settings_obj.currency_code == c %} selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="text-sm">{% tr "Базовая цена за минуту" %}
+      <input name="default_payout_rate_per_minute" class="radix-input" type="number" step="0.01" min="0" value="{{ settings_obj.default_payout_rate_per_minute }}" />
+    </label>
+    <label class="text-sm">{% tr "Язык интерфейса" %}
+      <select name="ui_language" class="radix-input">
+        {% for code,label in language_choices %}<option value="{{ code }}"{% if settings_obj.ui_language == code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="text-sm">{% tr "Начало бизнес-дня" %}
+      <input name="business_day_start" class="radix-input" type="time" value="{{ settings_obj.business_day_start|time:'H:i' }}" />
+    </label>
+    <label class="text-sm">{% tr "Конец бизнес-дня" %}
+      <input name="business_day_end" class="radix-input" type="time" value="{{ settings_obj.business_day_end|time:'H:i' }}" />
+    </label>
+    <label class="text-sm">{% tr "SLA цель, %" %}
+      <input name="sla_target_percent" class="radix-input" type="number" step="0.01" min="0" value="{{ settings_obj.sla_target_percent }}" />
+    </label>
+    <label class="text-sm md:col-span-2">{% tr "SLA порог ожидания, сек" %}
+      <input name="sla_target_wait_seconds" class="radix-input" type="number" min="0" value="{{ settings_obj.sla_target_wait_seconds }}" />
+    </label>
+    <button class="radix-button md:col-span-1" type="submit">{% tr "Сохранить общие настройки" %}</button>
+  </form>
+
+  <form method="get" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    <input name="q" value="{{ selected_query }}" class="radix-input" placeholder="{% tr "Поиск по маппингу/ставкам" %}" />
+    <button class="radix-button" type="submit">{% tr "Фильтр" %}</button>
+    <a href="{% url 'settings-page' %}" class="radix-button-secondary text-center">{% tr "Сбросить" %}</a>
+  </form>
+
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="radix-card p-4">
+      <h2 class="font-semibold mb-2">{% tr "Маппинг очередей" %}</h2>
+      <form method="post" class="space-y-2">
+        {% csrf_token %}
+        <input type="hidden" name="mapping_type" value="queue" />
+        <select name="system_name" class="radix-input" required>
+          <option value="">{% tr "Выберите очередь" %}</option>
+          {% for q in queues %}<option value="{{ q }}">{{ q }}</option>{% endfor %}
+        </select>
+        <input name="display_name" class="radix-input" placeholder="{% tr "Например: Техподдержка" %}" required />
+        <div class="flex gap-2">
+          <button class="radix-button" type="submit" name="action" value="save">{% tr "Сохранить" %}</button>
+          <button class="radix-button-secondary" type="submit" name="action" value="delete">{% tr "Удалить" %}</button>
+        </div>
+      </form>
+      <div class="overflow-auto mt-3 max-h-80">
+        <table class="radix-table"><thead><tr><th>{% tr "Системное" %}</th><th>{% tr "Отображаемое" %}</th></tr></thead><tbody>{% for m in queue_mappings %}<tr><td>{{ m.queue_system_name }}</td><td>{{ m.queue_display_name }}</td></tr>{% empty %}<tr><td colspan="2">{% tr "Нет маппинга" %}</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </div>
+
+    <div class="radix-card p-4">
+      <h2 class="font-semibold mb-2">{% tr "Маппинг операторов" %}</h2>
+      <form method="post" class="space-y-2">
+        {% csrf_token %}
+        <input type="hidden" name="mapping_type" value="agent" />
+        <select name="system_name" class="radix-input" required>
+          <option value="">{% tr "Выберите оператора" %}</option>
+          {% for a in agents %}<option value="{{ a.agent }}">{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+        </select>
+        <input name="display_name" class="radix-input" placeholder="{% tr "Например: Иванов И.И." %}" required />
+        <div class="flex gap-2">
+          <button class="radix-button" type="submit" name="action" value="save">{% tr "Сохранить" %}</button>
+          <button class="radix-button-secondary" type="submit" name="action" value="delete">{% tr "Удалить" %}</button>
+        </div>
+      </form>
+      <div class="overflow-auto mt-3 max-h-80">
+        <table class="radix-table"><thead><tr><th>{% tr "Системное" %}</th><th>{% tr "Отображаемое" %}</th></tr></thead><tbody>{% for m in agent_mappings %}<tr><td>{{ m.agent_system_name }}</td><td>{{ m.agent_display_name }}</td></tr>{% empty %}<tr><td colspan="2">{% tr "Нет маппинга" %}</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </div>
+
+    <div class="radix-card p-4">
+      <h2 class="font-semibold mb-2">{% tr "Ставки операторов" %}</h2>
+      <form method="post" class="space-y-2">
+        {% csrf_token %}
+        <input type="hidden" name="mapping_type" value="rate" />
+        <select name="system_name" class="radix-input" required>
+          <option value="">{% tr "Выберите оператора" %}</option>
+          {% for a in agents %}<option value="{{ a.agent }}">{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+        </select>
+        <input name="rate_per_minute" class="radix-input" type="number" step="0.01" min="0" placeholder="{% tr "Например: 3.50" %}" required />
+        <div class="flex gap-2">
+          <button class="radix-button" type="submit" name="action" value="save">{% tr "Сохранить" %}</button>
+          <button class="radix-button-secondary" type="submit" name="action" value="delete">{% tr "Удалить" %}</button>
+        </div>
+      </form>
+      <div class="overflow-auto mt-3 max-h-80">
+        <table class="radix-table"><thead><tr><th>{% tr "Оператор" %}</th><th>{% tr "Ставка/мин" %}</th></tr></thead><tbody>{% for r in payout_rates %}<tr><td>{{ r.agent_system_name }}</td><td>{{ r.rate_per_minute }}</td></tr>{% empty %}<tr><td colspan="2">{% tr "Нет ставок" %}</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

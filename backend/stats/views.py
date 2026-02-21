@@ -102,7 +102,7 @@ def _fetch_queuelog_rows(
     queue_params = list(queues or [])
     agent_params = list(agents or [])
     sql = f"""
-        SELECT time, queuename, agent, event, data1, data2, data3
+        SELECT time, callid, queuename, agent, event, data1, data2, data3
         FROM queuelog
         WHERE time >= %s AND time <= %s
           AND event IN ({",".join(["%s"] * len(events))})

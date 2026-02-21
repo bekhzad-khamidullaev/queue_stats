@@ -1,0 +1,24 @@
+{% extends "stats/base.html" %}
+{% block title %}Realtime{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <input name="channel" value="{{ selected_channel }}" placeholder="channel contains" class="radix-input" />
+    <input name="caller" value="{{ selected_caller }}" placeholder="caller contains" class="radix-input" />
+    <button class="radix-button" type="submit">{% tr "Применить фильтры" %}</button>
+  </form>
+</section>
+
+<div id="realtime-counters-panel" class="mb-4">
+  {% include "stats/partials/realtime_counters.html" %}
+</div>
+
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div id="queue-summary-panel" class="radix-card p-4">{% include "stats/partials/realtime_queue_summary.html" %}</div>
+  <div id="active-calls-panel" class="radix-card p-4 lg:col-span-2">{% include "stats/partials/realtime_active_calls.html" %}</div>
+</section>
+<div hx-ext="ws" ws-connect="/ws/htmx-realtime/?queues={{ selected_queues|urlencode }}&channel={{ selected_channel|urlencode }}&caller={{ selected_caller|urlencode }}" class="hidden"></div>
+{% endblock %}

@@ -173,24 +173,22 @@ class AMIManager:
             return
         
         entry = parsed[0]
-        
-        # Check if it's an event
+
+        # Route action-related frames first; AMI list results often include both ActionID and Event.
+        action_id = entry.get('ActionID')
+        if action_id and action_id in self.pending_responses:
+            self.pending_responses[action_id].put(parsed)
+
+        # Events are also delivered to subscribers/realtime pipeline.
         if 'Event' in entry:
             event = AMIEvent(entry)
             self.event_queue.put(event)
-            
-            # Call registered callbacks
+
             for callback in self.event_callbacks:
                 try:
                     callback(event)
                 except Exception as e:
                     logger.error(f"Event callback error: {e}")
-        
-        # Check if it's a response to an action
-        elif 'ActionID' in entry:
-            action_id = entry['ActionID']
-            if action_id in self.pending_responses:
-                self.pending_responses[action_id].put(parsed)
     
     def _send_action(self, action: str, **params) -> Optional[List[Dict[str, str]]]:
         """Send an AMI action and wait for response"""
@@ -222,13 +220,18 @@ class AMIManager:
                 try:
                     response = response_queue.get(timeout=0.5)
                     all_responses.extend(response)
-                    
-                    # Check if this is the final response
+
+                    # Wait for explicit completion markers for multi-event actions.
                     for entry in response:
-                        if entry.get('EventList') == 'Complete' or \
-                           'Complete' in entry.get('Event', '') or \
-                           entry.get('Response') == 'Success':
-                            # Got completion marker
+                        event_list = (entry.get('EventList') or '').strip().lower()
+                        event_name = entry.get('Event', '')
+                        has_event = 'Event' in entry
+
+                        if event_list == 'complete' or 'Complete' in event_name:
+                            return all_responses if all_responses else response
+
+                        # For one-shot actions a plain success response is final.
+                        if entry.get('Response') == 'Success' and not has_event and not event_list:
                             return all_responses if all_responses else response
                 except:
                     # Timeout on this iteration, check if we have any responses

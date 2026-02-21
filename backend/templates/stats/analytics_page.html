@@ -1,0 +1,141 @@
+{% extends "stats/base.html" %}
+{% load l10n %}
+{% block title %}Analytics{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить дашборд" %}</button>
+  </form>
+  <div class="flex flex-wrap gap-2 mt-3">
+    <a class="radix-button-secondary" href="{% url 'ui-export-analytics-xlsx' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">XLSX</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-analytics-pdf' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">PDF + Plots</a>
+  </div>
+</section>
+
+<section class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Всего" %}</p><p class="text-2xl font-semibold">{{ kpi_total }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Answered</p><p class="text-2xl font-semibold">{{ kpi_answered }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Abandoned</p><p class="text-2xl font-semibold">{{ kpi_abandoned }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Timeout</p><p class="text-2xl font-semibold">{{ kpi_timeout }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Unanswered</p><p class="text-2xl font-semibold">{{ kpi_unanswered }}</p></div>
+</section>
+
+<section class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">SLA</p><p class="text-2xl font-semibold">{{ kpi_sla }}%</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Abandon rate</p><p class="text-2xl font-semibold">{{ kpi_abandon_rate }}%</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Timeout rate</p><p class="text-2xl font-semibold">{{ kpi_timeout_rate }}%</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg hold</p><p class="text-2xl font-semibold">{{ kpi_avg_hold }}s</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg talk</p><p class="text-2xl font-semibold">{{ kpi_avg_talk }}s</p></div>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">AHT</p><p class="text-2xl font-semibold">{{ kpi_aht }}s</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Total talk</p><p class="text-2xl font-semibold">{{ kpi_total_talk_min }} min</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Active queues</p><p class="text-2xl font-semibold">{{ kpi_active_queues }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Active agents</p><p class="text-2xl font-semibold">{{ kpi_active_agents }}</p></div>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">Daily calls trend</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsDailyChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">Hourly load distribution</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsHourlyChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">Calls by queue</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsQueueCallsChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">Answered calls by operator</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsAgentAnsweredChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Дневная динамика" %}</h2>
+    <table class="radix-table"><thead><tr><th>Day</th><th>Answered</th><th>Unanswered</th></tr></thead><tbody>{% for r in daily %}<tr><td>{{ r.day }}</td><td>{{ r.answered }}</td><td>{{ r.unanswered }}</td></tr>{% empty %}<tr><td colspan="3">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody></table>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Почасовая нагрузка" %}</h2>
+    <table class="radix-table"><thead><tr><th>Hour</th><th>Answered</th><th>Unanswered</th></tr></thead><tbody>{% for r in hourly %}<tr><td>{{ r.hour }}</td><td>{{ r.answered }}</td><td>{{ r.unanswered }}</td></tr>{% empty %}<tr><td colspan="3">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody></table>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "KPI по очередям" %}</h2>
+    <div class="overflow-auto max-h-[34rem]">
+      <table class="radix-table">
+        <thead><tr><th>Queue</th><th>Total</th><th>Answered</th><th>Unanswered</th><th>SLA%</th><th>Abandon%</th><th>Timeout%</th><th>Avg hold</th><th>Avg talk</th><th>AHT</th></tr></thead>
+        <tbody>{% for r in per_queue %}<tr><td>{{ r.queue_display }}</td><td>{{ r.total_calls }}</td><td>{{ r.answered }}</td><td>{{ r.unanswered }}</td><td>{{ r.sla }}</td><td>{{ r.abandon_rate }}</td><td>{{ r.timeout_rate }}</td><td>{{ r.avg_hold }}</td><td>{{ r.avg_talk }}</td><td>{{ r.aht }}</td></tr>{% empty %}<tr><td colspan="10">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "KPI по операторам" %}</h2>
+    <div class="overflow-auto max-h-[34rem]">
+      <table class="radix-table">
+        <thead><tr><th>Operator</th><th>Answered</th><th>Share%</th><th>Queues</th><th>Avg hold</th><th>Avg talk</th><th>AHT</th><th>Talk min</th></tr></thead>
+        <tbody>{% for r in top_agents %}<tr><td>{{ r.agent_display }}</td><td>{{ r.answered }}</td><td>{{ r.share_answered }}</td><td>{{ r.queues_count }}</td><td>{{ r.avg_hold }}</td><td>{{ r.avg_talk }}</td><td>{{ r.aht }}</td><td>{{ r.talk_min }}</td></tr>{% empty %}<tr><td colspan="8">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% localize off %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.QueueCharts) return;
+
+    window.QueueCharts.renderLineChart("analyticsDailyChart", {
+      labels: [{% for p in daily_line_chart.points %}"{{ p.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for p in daily_line_chart.points %}{{ p.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Total calls",
+      yTitle: "Calls",
+      color: "#22d3ee",
+      fillColor: "rgba(34, 211, 238, 0.18)"
+    });
+
+    window.QueueCharts.renderBarChart("analyticsHourlyChart", {
+      labels: [{% for b in hourly_bar_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in hourly_bar_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Calls by hour",
+      yTitle: "Calls",
+      color: "#60a5fa",
+      borderColor: "#3b82f6"
+    });
+
+    window.QueueCharts.renderBarChart("analyticsQueueCallsChart", {
+      labels: [{% for b in queue_calls_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in queue_calls_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Calls per queue",
+      yTitle: "Calls",
+      color: "#34d399",
+      borderColor: "#10b981"
+    });
+
+    window.QueueCharts.renderBarChart("analyticsAgentAnsweredChart", {
+      labels: [{% for b in agent_answered_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in agent_answered_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Answered calls",
+      yTitle: "Calls",
+      color: "#a78bfa",
+      borderColor: "#8b5cf6"
+    });
+  });
+</script>
+{% endlocalize %}
+{% endblock %}

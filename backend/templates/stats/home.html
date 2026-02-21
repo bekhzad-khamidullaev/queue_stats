@@ -1,0 +1,18 @@
+{% extends "stats/base.html" %}
+{% block title %}Queue Stats{% endblock %}
+{% block body %}
+<section class="radix-card p-6">
+  <h1 class="text-2xl font-semibold text-slate-100">Queue Stats</h1>
+  <p class="text-slate-300 mt-2">{% tr "Детализации разделены по отдельным страницам. На всех страницах используются mapping-имена очередей и операторов." %}</p>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+    <a class="radix-card p-4" href="{% url 'report-summary-page' %}"><h2 class="font-semibold">Summary</h2></a>
+    <a class="radix-card p-4" href="{% url 'report-answered-page' %}"><h2 class="font-semibold">Answered</h2></a>
+    <a class="radix-card p-4" href="{% url 'report-unanswered-page' %}"><h2 class="font-semibold">Unanswered</h2></a>
+    <a class="radix-card p-4" href="{% url 'report-cdr-page' %}"><h2 class="font-semibold">CDR + {% tr "Прослушивание" %}</h2></a>
+    <a class="radix-card p-4" href="{% url 'analytics-page' %}"><h2 class="font-semibold">Analytics Dashboard</h2></a>
+    <a class="radix-card p-4" href="{% url 'dashboards-page' %}"><h2 class="font-semibold">{% tr "Тематические дашборды" %}</h2></a>
+    <a class="radix-card p-4" href="{% url 'realtime-page' %}"><h2 class="font-semibold">Realtime AMI</h2></a>
+    {% if request.user.role == 'admin' %}<a class="radix-card p-4" href="{% url 'settings-page' %}"><h2 class="font-semibold">Settings</h2></a>{% endif %}
+  </div>
+</section>
+{% endblock %}

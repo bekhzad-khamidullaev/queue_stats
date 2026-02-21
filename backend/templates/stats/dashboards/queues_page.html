@@ -1,0 +1,72 @@
+{% extends "stats/base.html" %}
+{% load l10n %}
+{% block title %}Dashboard: Queues{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить" %}</button>
+  </form>
+  <div class="flex flex-wrap gap-2 mt-3">
+    <a class="radix-button-secondary" href="{% url 'ui-export-dashboard-queues-xlsx' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">XLSX</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-dashboard-queues-pdf' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">PDF + Plots</a>
+  </div>
+</section>
+
+<section class="radix-card p-4">
+  <h2 class="text-lg font-semibold mb-3">{% tr "Queue analytics: Calls и SLA" %}</h2>
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+    <div>
+      <p class="text-slate-300 text-sm mb-2">Calls per queue</p>
+      <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+        <canvas id="queuesCallsChart"></canvas>
+      </div>
+    </div>
+    <div>
+      <p class="text-slate-300 text-sm mb-2">SLA per queue</p>
+      <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+        <canvas id="queuesSlaChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="overflow-auto max-h-[38rem]">
+    <table class="radix-table">
+      <thead><tr><th>Queue</th><th>Total</th><th>SLA%</th><th>Abandon%</th><th>Timeout%</th><th>AHT</th></tr></thead>
+      <tbody>{% for r in per_queue %}<tr><td>{{ r.queue_display }}</td><td>{{ r.total_calls }}</td><td>{{ r.sla }}</td><td>{{ r.abandon_rate }}</td><td>{{ r.timeout_rate }}</td><td>{{ r.aht }}</td></tr>{% empty %}<tr><td colspan="6">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% localize off %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.QueueCharts) return;
+
+    window.QueueCharts.renderBarChart("queuesCallsChart", {
+      labels: [{% for b in queues_calls_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in queues_calls_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Calls per queue",
+      yTitle: "Calls",
+      color: "#34d399",
+      borderColor: "#10b981"
+    });
+
+    window.QueueCharts.renderBarChart("queuesSlaChart", {
+      labels: [{% for b in queues_sla_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in queues_sla_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "SLA %",
+      yTitle: "Percent",
+      isPercent: true,
+      color: "#f59e0b",
+      borderColor: "#d97706"
+    });
+  });
+</script>
+{% endlocalize %}
+{% endblock %}

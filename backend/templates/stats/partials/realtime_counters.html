@@ -1,0 +1,14 @@
+<section class="grid grid-cols-1 md:grid-cols-3 gap-3">
+  <div class="radix-card p-4">
+    <p class="text-slate-300 text-sm">{% tr "Активные вызовы" %}</p>
+    <p class="text-3xl font-semibold">{{ active_calls_count|default:0 }}</p>
+  </div>
+  <div class="radix-card p-4">
+    <p class="text-slate-300 text-sm">{% tr "В ожидании" %}</p>
+    <p class="text-3xl font-semibold">{{ waiting_calls_count|default:0 }}</p>
+  </div>
+  <div class="radix-card p-4">
+    <p class="text-slate-300 text-sm">{% tr "Активные операторы" %}</p>
+    <p class="text-3xl font-semibold">{{ active_operators_count|default:0 }}</p>
+  </div>
+</section>

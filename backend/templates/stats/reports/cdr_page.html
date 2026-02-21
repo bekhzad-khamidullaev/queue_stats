@@ -1,0 +1,22 @@
+{% extends "stats/base.html" %}
+{% block title %}CDR{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-6 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <input name="src" value="{{ selected_src }}" placeholder="src" class="radix-input" />
+    <input name="dst" value="{{ selected_dst }}" placeholder="dst" class="radix-input" />
+    <input name="disposition" value="{{ selected_disposition }}" placeholder="ANSWERED/NO ANSWER/BUSY" class="radix-input" />
+    <button class="radix-button md:col-span-6" type="submit">{% tr "Обновить" %}</button>
+  </form>
+  <div class="flex flex-wrap gap-2 mt-3">
+    <a class="radix-button-secondary" href="{% url 'ui-export-cdr-xlsx' %}?start={{ default_start }}&end={{ default_end }}&agents={{ selected_agents }}&src={{ selected_src }}&dst={{ selected_dst }}&disposition={{ selected_disposition }}">XLSX</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-cdr-pdf' %}?start={{ default_start }}&end={{ default_end }}&agents={{ selected_agents }}&src={{ selected_src }}&dst={{ selected_dst }}&disposition={{ selected_disposition }}">PDF</a>
+  </div>
+</section>
+<section class="radix-card p-4">{% include "stats/partials/cdr_report.html" %}</section>
+{% endblock %}

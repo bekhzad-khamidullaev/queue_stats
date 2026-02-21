@@ -1,0 +1,14 @@
+{% extends "stats/base.html" %}
+{% block title %}Dashboards{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <h1 class="text-2xl font-semibold">{% tr "Тематические дашборды" %}</h1>
+  <p class="text-slate-300 mt-2">{% tr "Разделены по направлениям: трафик, KPI очередей, KPI операторов и выплаты." %}</p>
+</section>
+
+<section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+  <a href="{% url 'dashboard-traffic-page' %}" class="radix-card p-5"><h2 class="font-semibold text-lg">{% tr "Трафик" %}</h2><p class="text-slate-400 mt-2">{% tr "Дневная и почасовая нагрузка, гистограммы." %}</p></a>
+  <a href="{% url 'dashboard-queues-page' %}" class="radix-card p-5"><h2 class="font-semibold text-lg">{% tr "Очереди" %}</h2><p class="text-slate-400 mt-2">{% tr "SLA, abandon/timeout и AHT по очередям." %}</p></a>
+  <a href="{% url 'dashboard-operators-page' %}" class="radix-card p-5"><h2 class="font-semibold text-lg">{% tr "Операторы" %}</h2><p class="text-slate-400 mt-2">{% tr "Производительность операторов и выплаты." %}</p></a>
+</section>
+{% endblock %}

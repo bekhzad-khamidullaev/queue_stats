@@ -1,0 +1,18 @@
+{% extends "stats/base.html" %}
+{% block title %}Summary{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить" %}</button>
+  </form>
+</section>
+<section class="radix-card p-4">{% include "stats/partials/summary_report.html" %}</section>
+{% endblock %}

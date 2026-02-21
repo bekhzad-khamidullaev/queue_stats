@@ -104,8 +104,18 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
+```
+
+Add Django env variables (important for login CSRF behind proxy):
+
+```bash
+DJANGO_ALLOWED_HOSTS=your-domain.com,www.your-domain.com
+DJANGO_CSRF_TRUSTED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+DJANGO_TRUST_X_FORWARDED_PROTO=true
+DJANGO_USE_X_FORWARDED_HOST=true
 ```
 
 ## Frontend Setup

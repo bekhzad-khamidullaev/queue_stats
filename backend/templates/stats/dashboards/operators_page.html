@@ -1,0 +1,78 @@
+{% extends "stats/base.html" %}
+{% load l10n %}
+{% block title %}Dashboard: Operators{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить" %}</button>
+  </form>
+  <div class="flex flex-wrap gap-2 mt-3">
+    <a class="radix-button-secondary" href="{% url 'ui-export-dashboard-operators-xlsx' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">XLSX</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-dashboard-operators-pdf' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">PDF + Plots</a>
+  </div>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Answered</p><p class="text-2xl font-semibold">{{ kpi_answered }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg Talk</p><p class="text-2xl font-semibold">{{ kpi_avg_talk }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Сумма выплат" %}</p><p class="text-2xl font-semibold">{{ total_payout }} {{ currency_code }}</p></div>
+</section>
+
+<section class="radix-card p-4">
+  <h2 class="text-lg font-semibold mb-3">{% tr "Operator analytics: Talk minutes и Payout" %}</h2>
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+    <div>
+      <p class="text-slate-300 text-sm mb-2">Talk minutes</p>
+      <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+        <canvas id="operatorsTalkChart"></canvas>
+      </div>
+    </div>
+    <div>
+      <p class="text-slate-300 text-sm mb-2">Payout totals</p>
+      <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+        <canvas id="operatorsPayoutChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="overflow-auto max-h-[38rem]">
+    <table class="radix-table">
+      <thead><tr><th>Operator</th><th>Answered</th><th>Talk min</th><th>AHT</th><th>Share%</th><th>Rate/min</th><th>Payout</th></tr></thead>
+      <tbody>{% for r in rows_operators %}<tr><td>{{ r.agent_display }}</td><td>{{ r.answered }}</td><td>{{ r.talk_min }}</td><td>{{ r.aht }}</td><td>{{ r.share_answered }}</td><td>{{ r.rate_per_minute }} {{ currency_code }}</td><td>{{ r.payout_total }} {{ currency_code }}</td></tr>{% empty %}<tr><td colspan="7">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% localize off %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.QueueCharts) return;
+
+    window.QueueCharts.renderBarChart("operatorsTalkChart", {
+      labels: [{% for b in operators_talk_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in operators_talk_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Talk minutes",
+      yTitle: "Minutes",
+      color: "#38bdf8",
+      borderColor: "#0ea5e9"
+    });
+
+    window.QueueCharts.renderBarChart("operatorsPayoutChart", {
+      labels: [{% for b in operators_payout_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in operators_payout_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Payout totals ({{ currency_code|escapejs }})",
+      yTitle: "{{ currency_code|escapejs }}",
+      currencyCode: "{{ currency_code|escapejs }}",
+      color: "#a78bfa",
+      borderColor: "#8b5cf6"
+    });
+  });
+</script>
+{% endlocalize %}
+{% endblock %}

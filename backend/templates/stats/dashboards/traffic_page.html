@@ -1,0 +1,74 @@
+{% extends "stats/base.html" %}
+{% load l10n %}
+{% block title %}Dashboard: Traffic{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить" %}</button>
+  </form>
+  <div class="flex flex-wrap gap-2 mt-3">
+    <a class="radix-button-secondary" href="{% url 'ui-export-dashboard-traffic-xlsx' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">XLSX</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-dashboard-traffic-pdf' %}?start={{ default_start }}&end={{ default_end }}&queues={{ selected_queues }}&agents={{ selected_agents }}">PDF + Plots</a>
+  </div>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Дневная динамика звонков" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2 mb-3">
+      <canvas id="trafficDailyChart"></canvas>
+    </div>
+    <div class="overflow-auto max-h-[34rem]">
+      <table class="radix-table">
+        <thead><tr><th>Day</th><th>Total</th><th>Answered</th><th>Unanswered</th></tr></thead>
+        <tbody>{% for r in daily %}<tr><td>{{ r.day }}</td><td>{{ r.total }}</td><td>{{ r.answered }}</td><td>{{ r.unanswered }}</td></tr>{% empty %}<tr><td colspan="4">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Почасовая нагрузка" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2 mb-3">
+      <canvas id="trafficHourlyChart"></canvas>
+    </div>
+    <div class="overflow-auto max-h-[34rem]">
+      <table class="radix-table">
+        <thead><tr><th>Hour</th><th>Total</th><th>Answered</th><th>Unanswered</th></tr></thead>
+        <tbody>{% for r in hourly %}<tr><td>{{ r.hour }}</td><td>{{ r.total }}</td><td>{{ r.answered }}</td><td>{{ r.unanswered }}</td></tr>{% empty %}<tr><td colspan="4">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% localize off %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.QueueCharts) return;
+
+    window.QueueCharts.renderLineChart("trafficDailyChart", {
+      labels: [{% for p in daily_line_chart.points %}"{{ p.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for p in daily_line_chart.points %}{{ p.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Total calls",
+      yTitle: "Calls",
+      color: "#22d3ee",
+      fillColor: "rgba(34, 211, 238, 0.18)"
+    });
+
+    window.QueueCharts.renderBarChart("trafficHourlyChart", {
+      labels: [{% for b in hourly_bar_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in hourly_bar_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Calls by hour",
+      yTitle: "Calls",
+      color: "#60a5fa",
+      borderColor: "#3b82f6"
+    });
+  });
+</script>
+{% endlocalize %}
+{% endblock %}

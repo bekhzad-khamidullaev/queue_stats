@@ -5,6 +5,7 @@ import threading
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import AsyncWebsocketConsumer, WebsocketConsumer
 from channels.layers import get_channel_layer
+from django.http import QueryDict
 from django.template.loader import render_to_string
 from settings.models import GeneralSettings
 from stats.ami_manager import AMIEvent, AMIManager
@@ -88,6 +89,12 @@ class HtmxRealtimeConsumer(AsyncWebsocketConsumer):
         if not self.scope.get("user") or not self.scope["user"].is_authenticated:
             await self.close(code=4401)
             return
+        query = QueryDict((self.scope.get("query_string") or b"").decode())
+        self._filters = {
+            "queues": query.get("queues", ""),
+            "channel": query.get("channel", ""),
+            "caller": query.get("caller", ""),
+        }
         await self.accept()
         self._running = True
         self._task = asyncio.create_task(self._stream_loop())
@@ -104,7 +111,7 @@ class HtmxRealtimeConsumer(AsyncWebsocketConsumer):
     async def _stream_loop(self):
         while self._running:
             try:
-                context = await asyncio.to_thread(_build_ami_snapshot)
+                context = await asyncio.to_thread(_build_ami_snapshot, None, self._filters)
                 html = render_to_string("stats/partials/realtime_oob.html", context)
                 await self.send(text_data=html)
             except Exception as exc:

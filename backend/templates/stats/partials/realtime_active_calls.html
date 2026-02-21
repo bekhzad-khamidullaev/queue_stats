@@ -1,10 +1,10 @@
-<h2 class="text-lg font-semibold text-slate-100 mb-3">Активные звонки (AMI)</h2>
+<h2 class="text-lg font-semibold text-slate-100 mb-3">{% tr "Активные звонки (AMI)" %}</h2>
 {% if active_calls %}
   <div class="overflow-auto max-h-80">
-    <table class="radix-table">
+    <table class="radix-table realtime-calls-table">
       <thead>
         <tr>
-          <th>Channel</th><th>Caller</th><th>Connected</th><th>Duration</th><th>Application</th>
+          <th>{% tr "Канал" %}</th><th>{% tr "Кто звонит" %}</th><th>{% tr "С кем соединен" %}</th><th>{% tr "Длительность" %}</th><th>{% tr "Приложение" %}</th>
         </tr>
       </thead>
       <tbody>
@@ -17,5 +17,5 @@
     </table>
   </div>
 {% else %}
-  <p class="text-sm text-slate-400">Активных каналов нет.</p>
+  <p class="text-sm text-slate-400">{% tr "Активных каналов нет." %}</p>
 {% endif %}

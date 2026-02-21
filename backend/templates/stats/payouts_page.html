@@ -1,0 +1,46 @@
+{% extends "stats/base.html" %}
+{% block title %}{% tr "Выплаты" %}{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input name="start" value="{{ default_start }}" class="radix-input" />
+    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <select name="queues" multiple class="radix-input radix-select-multi">
+      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+    </select>
+    <select name="agents" multiple class="radix-input radix-select-multi">
+      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+    </select>
+    <button class="radix-button md:col-span-4" type="submit">{% tr "Рассчитать выплаты" %}</button>
+  </form>
+</section>
+
+<section class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Звонков" %}</p><p class="text-2xl font-semibold">{{ total_calls }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Минут разговора" %}</p><p class="text-2xl font-semibold">{{ total_talk_min }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Сумма выплат" %}</p><p class="text-2xl font-semibold">{{ total_payout }} {{ currency_code }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Операторов со ставкой" %}</p><p class="text-2xl font-semibold">{{ agents_with_rate }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Без ставки" %}</p><p class="text-2xl font-semibold">{{ agents_without_rate }}</p></div>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "По операторам" %}</h2>
+    <div class="overflow-auto max-h-[36rem]">
+      <table class="radix-table">
+        <thead><tr><th>{% tr "Оператор" %}</th><th>{% tr "Звонков" %}</th><th>{% tr "Минуты" %}</th><th>{% tr "Ставка/мин" %}</th><th>{% tr "Выплата" %}</th></tr></thead>
+        <tbody>{% for r in rows_agent %}<tr><td>{{ r.agent_display }}</td><td>{{ r.calls }}</td><td>{{ r.talk_min }}</td><td>{{ r.rate_per_minute }} {{ currency_code }}</td><td>{{ r.payout_total }} {{ currency_code }}</td></tr>{% empty %}<tr><td colspan="5">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "По очередям и операторам" %}</h2>
+    <div class="overflow-auto max-h-[36rem]">
+      <table class="radix-table">
+        <thead><tr><th>{% tr "Очередь" %}</th><th>{% tr "Оператор" %}</th><th>{% tr "Звонков" %}</th><th>{% tr "Минуты" %}</th><th>{% tr "Ставка/мин" %}</th><th>{% tr "Выплата" %}</th></tr></thead>
+        <tbody>{% for r in rows_queue %}<tr><td>{{ r.queue_display }}</td><td>{{ r.agent_display }}</td><td>{{ r.calls }}</td><td>{{ r.talk_min }}</td><td>{{ r.rate_per_minute }} {{ currency_code }}</td><td>{{ r.payout_total }} {{ currency_code }}</td></tr>{% empty %}<tr><td colspan="6">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

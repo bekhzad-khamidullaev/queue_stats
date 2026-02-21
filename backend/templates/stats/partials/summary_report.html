@@ -1,19 +1,15 @@
 <div class="space-y-2">
-  <p class="text-sm text-slate-300">Период: {{ start }} - {{ end }}</p>
-  <p class="text-sm text-slate-300">
-    Total: {{ total }} | Answered: {{ answered }} | Abandoned: {{ abandoned }} | Timeout: {{ timeout }}
-  </p>
-  <p class="text-sm text-slate-300">
-    SLA: {{ service_level }}% | Avg Wait: {{ avg_wait }}s | Avg Talk: {{ avg_talk }}s
-  </p>
+  <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+  <p class="text-sm text-slate-300">Total: {{ total }} | Answered: {{ answered }} | Abandoned: {{ abandoned }} | Timeout: {{ timeout }}</p>
+  <p class="text-sm text-slate-300">SLA: {{ service_level }}% | Avg Wait: {{ avg_wait }}s | Avg Talk: {{ avg_talk }}s</p>
   <div class="overflow-auto max-h-80">
     <table class="radix-table">
       <thead><tr><th>Queue</th><th>Answered</th><th>Unanswered</th><th>Total</th></tr></thead>
       <tbody>
       {% for row in per_queue %}
-        <tr><td>{{ row.queue }}</td><td>{{ row.answered }}</td><td>{{ row.unanswered }}</td><td>{{ row.total }}</td></tr>
+        <tr><td>{{ row.queue_display }}</td><td>{{ row.answered }}</td><td>{{ row.unanswered }}</td><td>{{ row.total }}</td></tr>
       {% empty %}
-        <tr><td colspan="4">Нет данных</td></tr>
+        <tr><td colspan="4">{% tr "Нет данных" %}</td></tr>
       {% endfor %}
       </tbody>
     </table>

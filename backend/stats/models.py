@@ -26,7 +26,7 @@ class AgentsNew(models.Model):
     name = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = "agents_new"
         verbose_name = "Agent"
         verbose_name_plural = "Agents"
@@ -37,7 +37,7 @@ class QueuesNew(models.Model):
     descr = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = "queues_new"
         verbose_name = "Queue"
         verbose_name_plural = "Queues"
@@ -77,4 +77,3 @@ class Cdr(models.Model):
     class Meta:
         managed = False
         db_table = "cdr"
-

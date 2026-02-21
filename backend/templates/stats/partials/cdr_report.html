@@ -1,16 +1,25 @@
 <div class="space-y-2">
-  <p class="text-sm text-slate-300">Период: {{ start }} - {{ end }}</p>
-  <p class="text-sm text-slate-300">Всего CDR: {{ total }}</p>
-  <div class="overflow-auto max-h-96">
+  <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+  <p class="text-sm text-slate-300">{% tr "Всего CDR" %}: {{ total }}</p>
+  <div class="overflow-auto max-h-[38rem]">
     <table class="radix-table">
-      <thead><tr><th>UniqueID</th><th>Date</th><th>SRC</th><th>DST</th><th>Duration</th><th>Billsec</th><th>Disposition</th></tr></thead>
+      <thead><tr><th>UniqueID</th><th>Date</th><th>Operator</th><th>SRC</th><th>DST</th><th>Duration</th><th>Billsec</th><th>Disposition</th><th>{% tr "Прослушивание" %}</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
-          <td>{{ row.uniqueid }}</td><td>{{ row.calldate }}</td><td>{{ row.src }}</td><td>{{ row.dst }}</td><td>{{ row.duration }}</td><td>{{ row.billsec }}</td><td>{{ row.disposition }}</td>
+          <td>{{ row.uniqueid }}</td><td>{{ row.calldate }}</td><td>{{ row.operator_display }}</td><td>{{ row.src }}</td><td>{{ row.dst_display }}</td><td>{{ row.duration }}</td><td>{{ row.billsec }}</td><td>{{ row.disposition }}</td>
+          <td>
+            {% if row.has_recording %}
+            <audio controls preload="none" controlslist="nodownload noplaybackrate" class="max-w-44">
+              <source src="{% url 'recording-stream' row.uniqueid %}" />
+            </audio>
+            {% else %}
+            <span class="text-slate-500">{% tr "Нет" %}</span>
+            {% endif %}
+          </td>
         </tr>
       {% empty %}
-        <tr><td colspan="7">Нет данных</td></tr>
+        <tr><td colspan="9">{% tr "Нет данных" %}</td></tr>
       {% endfor %}
       </tbody>
     </table>
