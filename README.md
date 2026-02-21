@@ -37,3 +37,9 @@ docker compose up --build
 ## Realtime
 
 Дашборд подключается к `/ws/htmx-realtime/` и получает HTML OOB-фрагменты для живого обновления блоков очередей и активных звонков.
+
+## Deploy
+
+Production deploy script and guide are in `deploy/`:
+- `deploy/deploy.sh`
+- `deploy/README.md`
