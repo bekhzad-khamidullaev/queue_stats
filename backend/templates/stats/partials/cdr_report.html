@@ -1,6 +1,7 @@
 <div class="space-y-2">
   <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
   <p class="text-sm text-slate-300">{% tr "Всего CDR" %}: {{ total }}</p>
+  <p class="text-sm text-slate-400">{% tr "Показаны записи" %}: {{ start_index }}-{{ end_index }} / {{ total }}</p>
   <div class="overflow-auto max-h-[38rem]">
     <table class="radix-table">
       <thead><tr><th>UniqueID</th><th>Date</th><th>Operator</th><th>SRC</th><th>DST</th><th>Duration</th><th>Billsec</th><th>Disposition</th><th>{% tr "Прослушивание" %}</th></tr></thead>
@@ -23,5 +24,10 @@
       {% endfor %}
       </tbody>
     </table>
+  </div>
+  <div class="flex items-center gap-2">
+    {% if has_prev %}<a class="radix-button-secondary" href="{{ prev_page_url }}">{% tr "Назад" %}</a>{% endif %}
+    <span class="text-sm text-slate-300">{% tr "Страница" %} {{ page }} / {{ total_pages }}</span>
+    {% if has_next %}<a class="radix-button-secondary" href="{{ next_page_url }}">{% tr "Вперед" %}</a>{% endif %}
   </div>
 </div>

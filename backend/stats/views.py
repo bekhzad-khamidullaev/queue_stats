@@ -21,6 +21,37 @@ from .models import AgentsNew, QueueLog, QueuesNew
 JsonDict = Dict[str, Any]
 
 
+def _to_int(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _pagination_from_payload(payload: JsonDict, default_page_size: int = 100, max_page_size: int = 1000) -> tuple[int, int, int]:
+    page = _to_int(payload.get("page"), default=1, minimum=1)
+    page_size = _to_int(payload.get("page_size"), default=default_page_size, minimum=1, maximum=max_page_size)
+    offset = (page - 1) * page_size
+    return page, page_size, offset
+
+
+def _pagination_meta(total: int, page: int, page_size: int) -> Dict[str, int | bool]:
+    total_pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+    }
+
+
 def _parse_request_payload(request: HttpRequest) -> JsonDict:
     if request.body:
         try:
@@ -354,6 +385,7 @@ def raw_events(request: HttpRequest) -> JsonResponse:
     queues = _normalize_list(payload.get("queues") or payload.get("queue"))
     start = _parse_datetime(payload.get("start"))
     end = _parse_datetime(payload.get("end"))
+    page, page_size, offset = _pagination_from_payload(payload)
 
     qs = QueueLog.objects.all()
     if start:
@@ -363,6 +395,7 @@ def raw_events(request: HttpRequest) -> JsonResponse:
     if queues:
         qs = qs.filter(queuename__in=queues)
 
+    total = qs.count()
     records = list(
         qs.values(
             "time",
@@ -375,9 +408,9 @@ def raw_events(request: HttpRequest) -> JsonResponse:
             "data3",
             "data4",
             "data5",
-        )[:1000]
+        )[offset:offset + page_size]
     )
-    return JsonResponse({"events": records})
+    return JsonResponse({"events": records, "pagination": _pagination_meta(total, page, page_size)})
 
 
 @csrf_exempt
@@ -448,6 +481,7 @@ def answered_cdr_report(request: HttpRequest) -> JsonResponse:
     payload = _parse_request_payload(request)
     start = _parse_datetime(payload.get("start"))
     end = _parse_datetime(payload.get("end"))
+    page, page_size, offset = _pagination_from_payload(payload)
 
     if not end:
         end = datetime.now().replace(hour=23, minute=59, second=59)
@@ -463,17 +497,24 @@ def answered_cdr_report(request: HttpRequest) -> JsonResponse:
         FROM cdr
         WHERE calldate >= %s AND calldate <= %s AND {" AND ".join(where_clauses)}
         ORDER BY calldate DESC
-        LIMIT 1000
+        LIMIT %s OFFSET %s
+    """
+    count_sql = f"""
+        SELECT COUNT(*)
+        FROM cdr
+        WHERE calldate >= %s AND calldate <= %s AND {" AND ".join(where_clauses)}
     """
 
     with connections['default'].cursor() as cursor:
-        cursor.execute(sql, params)
+        cursor.execute(count_sql, params)
+        total = int(cursor.fetchone()[0] or 0)
+        cursor.execute(sql, [*params, page_size, offset])
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
 
     data = [dict(zip(columns, row)) for row in rows]
 
-    return JsonResponse({"data": data})
+    return JsonResponse({"data": data, "pagination": _pagination_meta(total, page, page_size)})
 
 
 @csrf_exempt
@@ -485,50 +526,78 @@ def unanswered_cdr_report(request: HttpRequest) -> JsonResponse:
     callerid_search = (payload.get("callerid") or payload.get("callerid_search") or "").strip()
     start = _parse_datetime(payload.get("start"))
     end = _parse_datetime(payload.get("end"))
+    page, page_size, offset = _pagination_from_payload(payload)
 
     if not end:
         end = datetime.now().replace(hour=23, minute=59, second=59)
     if not start:
         start = end.replace(hour=0, minute=0, second=0)
-
+    where = [
+        "q.time >= %s",
+        "q.time <= %s",
+        "q.event IN ('ABANDON','EXITWITHTIMEOUT')",
+    ]
+    params: List[Any] = [start, end]
+    if queues:
+        where.append(f"q.queuename IN ({','.join(['%s'] * len(queues))})")
+        params.extend(queues)
     if callerid_search:
-        sql = """
-            SELECT time, callid, queuename, agent, event, data1, data2, data3
-            FROM queuelog
-            WHERE time >= %s AND time <= %s
-              AND event IN ('ABANDON','EXITWITHTIMEOUT','ENTERQUEUE')
-              AND callid IN (
-                  SELECT DISTINCT callid
-                  FROM queuelog
-                  WHERE time >= %s AND time <= %s AND data2 LIKE %s
-              )
-            ORDER BY callid, time
-            LIMIT 50000
-        """
-        params: List[Any] = [start, end, start, end, f"%{callerid_search}%"]
-    else:
-        queue_clause = ""
-        params = [start, end]
-        if queues:
-            queue_clause = f" AND queuename IN ({','.join(['%s'] * len(queues))})"
-            params.extend(queues)
-        sql = f"""
-            SELECT time, callid, queuename, agent, event, data1, data2, data3
-            FROM queuelog
-            WHERE time >= %s AND time <= %s
-              {queue_clause}
-              AND event IN ('ABANDON','EXITWITHTIMEOUT','ENTERQUEUE')
-            ORDER BY callid, time
-            LIMIT 50000
-        """
+        where.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM queuelog q2
+                WHERE q2.callid = q.callid
+                  AND q2.time >= %s AND q2.time <= %s
+                  AND q2.event = 'ENTERQUEUE'
+                  AND q2.data2 LIKE %s
+            )
+            """
+        )
+        params.extend([start, end, f"%{callerid_search}%"])
+    where_sql = " AND ".join(where)
+    data_sql = f"""
+        SELECT q.time, q.callid, q.queuename, q.agent, q.event, q.data1, q.data2, q.data3
+        FROM queuelog q
+        WHERE {where_sql}
+        ORDER BY q.time DESC
+        LIMIT %s OFFSET %s
+    """
+    count_sql = f"SELECT COUNT(*) FROM queuelog q WHERE {where_sql}"
 
     with connections['default'].cursor() as cursor:
-        cursor.execute(sql, params)
+        cursor.execute(count_sql, params)
+        total = int(cursor.fetchone()[0] or 0)
+        cursor.execute(data_sql, [*params, page_size, offset])
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
 
-    records = _join_enterqueue_callerids([dict(zip(columns, row)) for row in rows])
-    return JsonResponse({"data": records, "count": len(records)})
+        page_records = [dict(zip(columns, row)) for row in rows]
+        callids = [str(item.get("callid") or "") for item in page_records]
+        caller_map: Dict[str, str] = {}
+        if callids:
+            placeholders = ",".join(["%s"] * len(callids))
+            cursor.execute(
+                f"""
+                SELECT callid,
+                       SUBSTRING_INDEX(
+                         GROUP_CONCAT(NULLIF(data2, '') ORDER BY time DESC SEPARATOR ','),
+                         ',',
+                         1
+                       ) AS caller
+                FROM queuelog
+                WHERE event = 'ENTERQUEUE' AND callid IN ({placeholders})
+                GROUP BY callid
+                """,
+                callids,
+            )
+            for callid, caller in cursor.fetchall():
+                caller_map[str(callid)] = str(caller or "")
+
+    for row in page_records:
+        row["callerid"] = caller_map.get(str(row.get("callid") or ""), "")
+
+    return JsonResponse({"data": page_records, "pagination": _pagination_meta(total, page, page_size)})
 
 
 @csrf_exempt
@@ -539,6 +608,7 @@ def outbound_report(request: HttpRequest) -> JsonResponse:
     agents = _normalize_list(payload.get("agents") or payload.get("agent"))
     start = _parse_datetime(payload.get("start"))
     end = _parse_datetime(payload.get("end"))
+    page, page_size, offset = _pagination_from_payload(payload)
 
     if not end:
         end = datetime.now().replace(hour=23, minute=59, second=59)
@@ -551,30 +621,50 @@ def outbound_report(request: HttpRequest) -> JsonResponse:
         agent_clause = f" AND cnam IN ({','.join(['%s'] * len(agents))})"
         params.extend(agents)
 
+    where_sql = f"""
+        WHERE calldate >= %s AND calldate <= %s
+        {agent_clause}
+    """
     sql = f"""
         SELECT calldate, uniqueid, billsec, disposition, src, dst, cnum, cnam, recordingfile
         FROM cdr
-        WHERE calldate >= %s AND calldate <= %s
-        {agent_clause}
+        {where_sql}
         ORDER BY calldate DESC
-        LIMIT 50000
+        LIMIT %s OFFSET %s
+    """
+    count_sql = f"SELECT COUNT(*) FROM cdr {where_sql}"
+    overview_sql = f"""
+        SELECT
+            COALESCE(NULLIF(cnum, ''), NULLIF(cnam, ''), 'UNKNOWN') AS agent_key,
+            SUM(CASE WHEN disposition = 'ANSWERED' THEN 1 ELSE 0 END) AS answered,
+            SUM(CASE WHEN disposition = 'NO ANSWER' THEN 1 ELSE 0 END) AS no_answer,
+            SUM(CASE WHEN disposition = 'BUSY' THEN 1 ELSE 0 END) AS busy,
+            COUNT(*) AS total
+        FROM cdr
+        {where_sql}
+        GROUP BY agent_key
     """
 
     with connections['default'].cursor() as cursor:
-        cursor.execute(sql, params)
+        cursor.execute(count_sql, params)
+        total = int(cursor.fetchone()[0] or 0)
+        cursor.execute(sql, [*params, page_size, offset])
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
+        cursor.execute(overview_sql, params)
+        overview_rows = cursor.fetchall()
 
     records = [dict(zip(columns, row)) for row in rows]
-    overview: Dict[str, Dict[str, int]] = defaultdict(lambda: {"ANSWERED": 0, "NO ANSWER": 0, "BUSY": 0, "TOTAL": 0})
-    for row in records:
-        agent = str(row.get("cnum") or row.get("cnam") or "UNKNOWN")
-        disp = str(row.get("disposition") or "")
-        if disp in overview[agent]:
-            overview[agent][disp] += 1
-        overview[agent]["TOTAL"] += 1
+    overview: Dict[str, Dict[str, int]] = {}
+    for agent_key, answered, no_answer, busy, total_count in overview_rows:
+        overview[str(agent_key)] = {
+            "ANSWERED": int(answered or 0),
+            "NO ANSWER": int(no_answer or 0),
+            "BUSY": int(busy or 0),
+            "TOTAL": int(total_count or 0),
+        }
 
-    return JsonResponse({"data": records, "overview": overview})
+    return JsonResponse({"data": records, "overview": overview, "pagination": _pagination_meta(total, page, page_size)})
 
 
 @csrf_exempt
@@ -698,6 +788,7 @@ def queue_search(request: HttpRequest) -> JsonResponse:
     alltime = _parse_bool(payload.get("alltime"), default=False)
     start = _parse_datetime(payload.get("start"))
     end = _parse_datetime(payload.get("end"))
+    page, page_size, offset = _pagination_from_payload(payload)
 
     where: List[str] = []
     params: List[Any] = []
@@ -722,16 +813,26 @@ def queue_search(request: HttpRequest) -> JsonResponse:
         SELECT time, callid, queuename, agent, event, data1, data2, data3, data4, data5
         FROM queuelog
     """
+    count_sql = "SELECT COUNT(*) FROM queuelog"
     if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY time DESC LIMIT 50000"
+        where_sql = " WHERE " + " AND ".join(where)
+        sql += where_sql
+        count_sql += where_sql
+    sql += " ORDER BY time DESC LIMIT %s OFFSET %s"
 
     with connections['default'].cursor() as cursor:
-        cursor.execute(sql, params)
+        cursor.execute(count_sql, params)
+        total = int(cursor.fetchone()[0] or 0)
+        cursor.execute(sql, [*params, page_size, offset])
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
 
-    return JsonResponse({"events": [dict(zip(columns, r)) for r in rows]})
+    return JsonResponse(
+        {
+            "events": [dict(zip(columns, r)) for r in rows],
+            "pagination": _pagination_meta(total, page, page_size),
+        }
+    )
 
 
 @csrf_exempt

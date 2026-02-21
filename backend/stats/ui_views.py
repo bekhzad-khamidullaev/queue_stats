@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlencode
 from urllib.parse import urlparse, urlunparse
 
 import requests
@@ -364,6 +365,7 @@ def _base_context(request: HttpRequest) -> Dict[str, Any]:
         "selected_channel": request.GET.get("channel", ""),
         "selected_caller": request.GET.get("caller", ""),
         "selected_query": request.GET.get("q", ""),
+        "selected_page_size": request.GET.get("page_size", "100"),
     }
 
 
@@ -374,6 +376,170 @@ def _get_general_settings() -> GeneralSettings:
     return GeneralSettings.objects.create()
 
 
+def _to_int(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _paginated_rows(request: HttpRequest, rows: List[Dict[str, Any]], default_page_size: int = 100, max_page_size: int = 500) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    page = _to_int(request.GET.get("page"), default=1, minimum=1)
+    page_size = _to_int(request.GET.get("page_size"), default=default_page_size, minimum=1, maximum=max_page_size)
+
+    total = len(rows)
+    total_pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * page_size
+    page_rows = rows[offset:offset + page_size]
+
+    start_index = offset + 1 if total else 0
+    end_index = min(offset + page_size, total)
+    query_pairs = [(key, value) for key, value in request.GET.lists() if key != "page"]
+    base_qs = urlencode(query_pairs, doseq=True)
+
+    def _link(target_page: int) -> str:
+        if base_qs:
+            return f"?{base_qs}&page={target_page}"
+        return f"?page={target_page}"
+
+    return page_rows, {
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "start_index": start_index,
+        "end_index": end_index,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "prev_page_url": _link(page - 1) if page > 1 else "",
+        "next_page_url": _link(page + 1) if page < total_pages else "",
+    }
+
+
+def _pagination_params(request: HttpRequest, default_page_size: int = 100, max_page_size: int = 500) -> tuple[int, int]:
+    page = _to_int(request.GET.get("page"), default=1, minimum=1)
+    page_size = _to_int(request.GET.get("page_size"), default=default_page_size, minimum=1, maximum=max_page_size)
+    return page, page_size
+
+
+def _pagination_meta(request: HttpRequest, page: int, page_size: int, total: int) -> Dict[str, Any]:
+    total_pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * page_size
+    start_index = offset + 1 if total else 0
+    end_index = min(offset + page_size, total)
+    query_pairs = [(key, value) for key, value in request.GET.lists() if key != "page"]
+    base_qs = urlencode(query_pairs, doseq=True)
+
+    def _link(target_page: int) -> str:
+        if base_qs:
+            return f"?{base_qs}&page={target_page}"
+        return f"?page={target_page}"
+
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "start_index": start_index,
+        "end_index": end_index,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "prev_page_url": _link(page - 1) if page > 1 else "",
+        "next_page_url": _link(page + 1) if page < total_pages else "",
+    }
+
+
+def _build_queuelog_filter_sql(
+    start: datetime,
+    end: datetime,
+    queues: List[str] | None,
+    agents: List[str] | None,
+    events: List[str],
+) -> tuple[str, List[Any]]:
+    where = [
+        "time >= %s",
+        "time <= %s",
+        f"event IN ({','.join(['%s'] * len(events))})",
+    ]
+    params: List[Any] = [start, end, *events]
+
+    queue_params = list(queues or [])
+    if queue_params:
+        where.append(f"queuename IN ({','.join(['%s'] * len(queue_params))})")
+        params.extend(queue_params)
+
+    agent_params = list(agents or [])
+    if agent_params:
+        where.append(f"agent IN ({','.join(['%s'] * len(agent_params))})")
+        params.extend(agent_params)
+
+    return " AND ".join(where), params
+
+
+def _fetch_queuelog_page(
+    start: datetime,
+    end: datetime,
+    queues: List[str] | None,
+    agents: List[str] | None,
+    events: List[str],
+    page: int,
+    page_size: int,
+) -> tuple[List[Dict[str, Any]], int]:
+    where_sql, params = _build_queuelog_filter_sql(start, end, queues, agents, events)
+    requested_page = max(1, page)
+    safe_page_size = max(1, page_size)
+
+    sql = f"""
+        SELECT time, callid, queuename, agent, event, data1, data2, data3
+        FROM queuelog
+        WHERE {where_sql}
+        ORDER BY time DESC
+        LIMIT %s OFFSET %s
+    """
+    count_sql = f"SELECT COUNT(*) FROM queuelog WHERE {where_sql}"
+
+    with connections["default"].cursor() as cursor:
+        cursor.execute(count_sql, params)
+        total = int(cursor.fetchone()[0] or 0)
+        total_pages = max(1, (total + safe_page_size - 1) // safe_page_size) if safe_page_size else 1
+        safe_page = min(requested_page, total_pages)
+        offset = (safe_page - 1) * safe_page_size
+
+        cursor.execute(sql, [*params, safe_page_size, offset])
+        columns = [col[0] for col in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return rows, total
+
+
+def _queuelog_avg_numeric(
+    start: datetime,
+    end: datetime,
+    queues: List[str] | None,
+    agents: List[str] | None,
+    events: List[str],
+    data_column: str,
+) -> float:
+    allowed_columns = {"data1", "data2", "data3"}
+    if data_column not in allowed_columns:
+        return 0.0
+    where_sql, params = _build_queuelog_filter_sql(start, end, queues, agents, events)
+    sql = f"SELECT COALESCE(AVG(CAST({data_column} AS UNSIGNED)), 0) FROM queuelog WHERE {where_sql}"
+    with connections["default"].cursor() as cursor:
+        cursor.execute(sql, params)
+        avg_value = cursor.fetchone()[0]
+    try:
+        return round(float(avg_value or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _answered_dataset(request: HttpRequest) -> Dict[str, Any]:
     start, end = _interval_from_request(request)
     queues = _get_param_list(request, "queues")
@@ -381,7 +547,8 @@ def _answered_dataset(request: HttpRequest) -> Dict[str, Any]:
     qmap = _queue_map()
     amap = _agent_map()
 
-    rows = _fetch_queuelog_rows(start, end, queues, agents, ["COMPLETECALLER", "COMPLETEAGENT"])
+    page, page_size = _pagination_params(request)
+    rows, total = _fetch_queuelog_page(start, end, queues, agents, ["COMPLETECALLER", "COMPLETEAGENT"], page, page_size)
     caller_map = _caller_map_by_callids([str(r.get("callid") or "") for r in rows])
     flat_rows: List[Dict[str, Any]] = []
     for row in rows:
@@ -402,16 +569,17 @@ def _answered_dataset(request: HttpRequest) -> Dict[str, Any]:
             }
         )
 
-    total = len(flat_rows)
-    avg_hold = round(sum(r["hold"] for r in flat_rows) / total, 2) if total else 0
-    avg_talk = round(sum(r["talk"] for r in flat_rows) / total, 2) if total else 0
+    pagination = _pagination_meta(request, page, page_size, total)
+    avg_hold = _queuelog_avg_numeric(start, end, queues, agents, ["COMPLETECALLER", "COMPLETEAGENT"], "data1")
+    avg_talk = _queuelog_avg_numeric(start, end, queues, agents, ["COMPLETECALLER", "COMPLETEAGENT"], "data2")
     return {
         "start": start,
         "end": end,
-        "rows": flat_rows[:1000],
+        "rows": flat_rows,
         "total": total,
         "avg_hold": avg_hold,
         "avg_talk": avg_talk,
+        **pagination,
     }
 
 
@@ -419,7 +587,8 @@ def _unanswered_dataset(request: HttpRequest) -> Dict[str, Any]:
     start, end = _interval_from_request(request)
     queues = _get_param_list(request, "queues")
     qmap = _queue_map()
-    rows = _fetch_queuelog_rows(start, end, queues, None, ["ABANDON", "EXITWITHTIMEOUT"])
+    page, page_size = _pagination_params(request)
+    rows, total = _fetch_queuelog_page(start, end, queues, None, ["ABANDON", "EXITWITHTIMEOUT"], page, page_size)
     caller_map = _caller_map_by_callids([str(r.get("callid") or "") for r in rows])
 
     flat_rows: List[Dict[str, Any]] = []
@@ -440,14 +609,15 @@ def _unanswered_dataset(request: HttpRequest) -> Dict[str, Any]:
             }
         )
 
-    total = len(flat_rows)
-    avg_wait = round(sum(r["wait_sec"] for r in flat_rows) / total, 2) if total else 0
+    pagination = _pagination_meta(request, page, page_size, total)
+    avg_wait = _queuelog_avg_numeric(start, end, queues, None, ["ABANDON", "EXITWITHTIMEOUT"], "data3")
     return {
         "start": start,
         "end": end,
-        "rows": flat_rows[:1000],
+        "rows": flat_rows,
         "total": total,
         "avg_wait": avg_wait,
+        **pagination,
     }
 
 
@@ -457,10 +627,81 @@ def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
     src_filter = (request.GET.get("src") or "").strip()
     dst_filter = (request.GET.get("dst") or "").strip()
     disposition_filter = (request.GET.get("disposition") or "").strip()
+    page, page_size = _pagination_params(request)
 
     amap = _agent_map()
     qmap = _queue_map()
-    sql = """
+
+    where: List[str] = ["c.calldate >= %s", "c.calldate <= %s"]
+    params: List[Any] = [start, end]
+
+    agent_values: List[str] = []
+    if agents:
+        for raw in agents:
+            for alias in _agent_aliases(raw):
+                if alias not in agent_values:
+                    agent_values.append(alias)
+        if agent_values:
+            placeholders = ",".join(["%s"] * len(agent_values))
+            where.append(
+                "("
+                f"c.cnam IN ({placeholders}) OR c.cnum IN ({placeholders}) "
+                f"OR ql.agent IN ({placeholders}) OR c.dstchannel IN ({placeholders})"
+                ")"
+            )
+            params.extend(agent_values)
+            params.extend(agent_values)
+            params.extend(agent_values)
+            params.extend(agent_values)
+
+            like_chunks: List[str] = []
+            like_params: List[str] = []
+            for alias in agent_values:
+                like_chunks.append("c.dstchannel LIKE %s")
+                like_params.append(f"%/{alias}@%")
+                like_chunks.append("c.dstchannel LIKE %s")
+                like_params.append(f"%/{alias}-%")
+            if like_chunks:
+                where.append(f"({' OR '.join(like_chunks)})")
+                params.extend(like_params)
+
+    if src_filter:
+        where.append("c.src LIKE %s")
+        params.append(f"%{src_filter}%")
+    if dst_filter:
+        where.append("(c.dst LIKE %s OR c.dcontext LIKE %s OR c.lastdata LIKE %s)")
+        params.append(f"%{dst_filter}%")
+        params.append(f"%{dst_filter}%")
+        params.append(f"%{dst_filter}%")
+    if disposition_filter:
+        where.append("c.disposition = %s")
+        params.append(disposition_filter)
+
+    where_sql = " AND ".join(where)
+    from_sql = """
+        FROM cdr c
+        LEFT JOIN (
+            SELECT
+                callid,
+                SUBSTRING_INDEX(GROUP_CONCAT(agent ORDER BY time DESC SEPARATOR ','), ',', 1) AS agent
+            FROM queuelog
+            WHERE event IN ('CONNECT', 'COMPLETECALLER', 'COMPLETEAGENT')
+              AND time >= %s AND time <= %s
+              AND agent IS NOT NULL AND agent <> ''
+            GROUP BY callid
+        ) ql ON ql.callid = c.uniqueid
+    """
+    count_sql = f"SELECT COUNT(*) {from_sql} WHERE {where_sql}"
+    count_params = [start, end, *params]
+
+    with connections["default"].cursor() as cursor:
+        cursor.execute(count_sql, count_params)
+        total = int(cursor.fetchone()[0] or 0)
+
+    pagination = _pagination_meta(request, page, page_size, total)
+    offset = (pagination["page"] - 1) * pagination["page_size"]
+
+    sql = f"""
         SELECT
             c.uniqueid,
             c.calldate,
@@ -477,48 +718,18 @@ def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
             c.disposition,
             c.recordingfile,
             ql.agent AS queue_agent
-        FROM cdr c
-        LEFT JOIN (
-            SELECT
-                callid,
-                SUBSTRING_INDEX(GROUP_CONCAT(agent ORDER BY time DESC SEPARATOR ','), ',', 1) AS agent
-            FROM queuelog
-            WHERE event IN ('CONNECT', 'COMPLETECALLER', 'COMPLETEAGENT')
-              AND agent IS NOT NULL AND agent <> ''
-            GROUP BY callid
-        ) ql ON ql.callid = c.uniqueid
-        WHERE calldate >= %s AND calldate <= %s
+        {from_sql}
+        WHERE {where_sql}
+        ORDER BY c.calldate DESC
+        LIMIT %s OFFSET %s
     """
-    params: List[Any] = [start, end]
-
-    if agents:
-        sql += f" AND (cnam IN ({','.join(['%s'] * len(agents))}) OR cnum IN ({','.join(['%s'] * len(agents))}))"
-        params.extend(agents)
-        params.extend(agents)
-    if src_filter:
-        sql += " AND c.src LIKE %s"
-        params.append(f"%{src_filter}%")
-    if dst_filter:
-        sql += " AND (c.dst LIKE %s OR c.dcontext LIKE %s OR c.lastdata LIKE %s)"
-        params.append(f"%{dst_filter}%")
-        params.append(f"%{dst_filter}%")
-        params.append(f"%{dst_filter}%")
-    if disposition_filter:
-        sql += " AND c.disposition = %s"
-        params.append(disposition_filter)
-
-    sql += " ORDER BY c.calldate DESC LIMIT 5000"
+    data_params = [start, end, *params, pagination["page_size"], offset]
 
     with connections["default"].cursor() as cursor:
-        cursor.execute(sql, params)
+        cursor.execute(sql, data_params)
         rows = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
     data = [dict(zip(columns, row)) for row in rows]
-
-    agent_filter_set = set()
-    for raw in agents:
-        for key in _agent_aliases(raw):
-            agent_filter_set.add(key)
 
     for row in data:
         operator_system = str(row.get("queue_agent") or "")
@@ -537,16 +748,7 @@ def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
 
         row["has_recording"] = bool(row.get("recordingfile"))
 
-    if agent_filter_set:
-        filtered: List[Dict[str, Any]] = []
-        for row in data:
-            op = str(row.get("queue_agent") or row.get("dstchannel") or "")
-            op_aliases = set(_agent_aliases(op))
-            if op_aliases & agent_filter_set:
-                filtered.append(row)
-        data = filtered
-
-    return {"start": start, "end": end, "rows": data[:1000], "total": len(data)}
+    return {"start": start, "end": end, "rows": data, "total": total, **pagination}
 
 
 def _call_detail_dataset(callid: str) -> Dict[str, Any]:

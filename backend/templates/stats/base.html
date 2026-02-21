@@ -4,6 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}Queue Stats{% endblock %}</title>
+    <script>
+      (function () {
+        try {
+          var savedTheme = localStorage.getItem('ui-theme');
+          if (savedTheme === 'light' || savedTheme === 'dark') {
+            document.documentElement.setAttribute('data-theme', savedTheme);
+          }
+        } catch (e) {
+          // Ignore storage errors and keep default theme.
+        }
+      })();
+    </script>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -14,6 +26,7 @@
     <link rel="stylesheet" href="/static/css/app.css" />
     <script src="/static/js/charts.js" defer></script>
     <script src="/static/js/select2-init.js" defer></script>
+    <script src="/static/js/theme-toggle.js" defer></script>
   </head>
   <body class="radix-body">
     {% if request.user.is_authenticated %}

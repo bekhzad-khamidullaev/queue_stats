@@ -4,6 +4,9 @@
 <section class="radix-card p-4 mb-4">
   <h1 class="text-xl font-semibold mb-2">{% tr "Настройки системы" %}</h1>
   {% if notice %}<p class="text-green-300 mb-3">{{ notice }}</p>{% endif %}
+  <div class="mb-4">
+    <button type="button" class="radix-button-secondary" data-theme-toggle>{% tr "Переключить тему" %}</button>
+  </div>
 
   <form method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
     {% csrf_token %}

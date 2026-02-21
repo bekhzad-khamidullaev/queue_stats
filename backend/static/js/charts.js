@@ -1,6 +1,15 @@
 (function () {
   const instances = new Map();
   const locale = document.documentElement.lang || navigator.language || "ru-RU";
+  const numberFormatCache = new Map();
+
+  function getFormatter(options) {
+    const key = JSON.stringify(options || {});
+    if (!numberFormatCache.has(key)) {
+      numberFormatCache.set(key, new Intl.NumberFormat(locale, options || {}));
+    }
+    return numberFormatCache.get(key);
+  }
 
   function destroyIfExists(canvasId) {
     const existing = instances.get(canvasId);
@@ -15,14 +24,14 @@
     const fractionDigits = Number.isInteger(num) ? 0 : 2;
 
     if (options && options.isPercent) {
-      return `${new Intl.NumberFormat(locale, {
+      return `${getFormatter({
         minimumFractionDigits: fractionDigits,
         maximumFractionDigits: 2,
       }).format(num)}%`;
     }
 
     if (options && options.currencyCode) {
-      return new Intl.NumberFormat(locale, {
+      return getFormatter({
         style: "currency",
         currency: options.currencyCode,
         minimumFractionDigits: 2,
@@ -30,23 +39,26 @@
       }).format(num);
     }
 
-    return new Intl.NumberFormat(locale, {
+    return getFormatter({
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: 2,
     }).format(num);
   }
 
-  function baseOptions(yTitle, formatOptions) {
+  function baseOptions(yTitle, formatOptions, pointCount) {
+    const largeDataset = (pointCount || 0) > 120;
     return {
       responsive: true,
       maintainAspectRatio: false,
       animation: {
-        duration: 450,
+        duration: largeDataset ? 0 : 450,
       },
       interaction: {
         mode: "index",
         intersect: false,
       },
+      parsing: false,
+      normalized: true,
       plugins: {
         legend: {
           display: true,
@@ -68,6 +80,12 @@
               return `${label}${formatNumber(context.parsed.y, formatOptions)}`;
             },
           },
+        },
+      },
+      elements: {
+        point: {
+          radius: largeDataset ? 0 : 3,
+          hoverRadius: largeDataset ? 3 : 5,
         },
       },
       scales: {
@@ -104,39 +122,85 @@
     };
   }
 
+  function downsampleSeries(labels, values, maxPoints) {
+    if (!Array.isArray(labels) || !Array.isArray(values)) {
+      return { labels: [], values: [] };
+    }
+    const size = Math.min(labels.length, values.length);
+    if (size <= maxPoints) {
+      return { labels: labels.slice(0, size), values: values.slice(0, size) };
+    }
+    const sampledLabels = [];
+    const sampledValues = [];
+    const step = (size - 1) / (maxPoints - 1);
+    for (let i = 0; i < maxPoints; i += 1) {
+      const idx = Math.round(i * step);
+      sampledLabels.push(labels[idx]);
+      sampledValues.push(values[idx]);
+    }
+    return { labels: sampledLabels, values: sampledValues };
+  }
+
+  function renderWhenVisible(el, renderFn) {
+    if (!("IntersectionObserver" in window)) {
+      renderFn();
+      return;
+    }
+    if (el.dataset.chartObserved === "1") {
+      return;
+    }
+    el.dataset.chartObserved = "1";
+    const observer = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            observer.disconnect();
+            renderFn();
+          }
+        });
+      },
+      { rootMargin: "200px 0px" }
+    );
+    observer.observe(el);
+  }
+
   function renderBarChart(canvasId, config) {
     const el = document.getElementById(canvasId);
     if (!el || typeof Chart === "undefined") {
       return;
     }
-    destroyIfExists(canvasId);
 
-    const labels = Array.isArray(config.labels) ? config.labels : [];
-    const values = Array.isArray(config.values) ? config.values : [];
+    renderWhenVisible(el, function () {
+      destroyIfExists(canvasId);
 
-    const chart = new Chart(el, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: config.label || "Series",
-            data: values,
-            backgroundColor: config.color || "#38bdf8",
-            borderColor: config.borderColor || "#0ea5e9",
-            borderWidth: 1,
-            borderRadius: 6,
-            maxBarThickness: 30,
-          },
-        ],
-      },
-      options: baseOptions(config.yTitle, {
-        currencyCode: config.currencyCode || "",
-        isPercent: Boolean(config.isPercent),
-      }),
+      const labels = Array.isArray(config.labels) ? config.labels : [];
+      const values = Array.isArray(config.values) ? config.values : [];
+      const sampled = downsampleSeries(labels, values, Number(config.maxPoints || 180));
+
+      const chart = new Chart(el, {
+        type: "bar",
+        data: {
+          labels: sampled.labels,
+          datasets: [
+            {
+              label: config.label || "Series",
+              data: sampled.values,
+              backgroundColor: config.color || "#38bdf8",
+              borderColor: config.borderColor || "#0ea5e9",
+              borderWidth: 1,
+              borderRadius: 6,
+              maxBarThickness: 30,
+            },
+          ],
+        },
+        options: baseOptions(config.yTitle, {
+          currencyCode: config.currencyCode || "",
+          isPercent: Boolean(config.isPercent),
+        }, sampled.values.length),
+      });
+
+      instances.set(canvasId, chart);
     });
-
-    instances.set(canvasId, chart);
   }
 
   function renderLineChart(canvasId, config) {
@@ -144,37 +208,39 @@
     if (!el || typeof Chart === "undefined") {
       return;
     }
-    destroyIfExists(canvasId);
 
-    const labels = Array.isArray(config.labels) ? config.labels : [];
-    const values = Array.isArray(config.values) ? config.values : [];
+    renderWhenVisible(el, function () {
+      destroyIfExists(canvasId);
 
-    const chart = new Chart(el, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: config.label || "Series",
-            data: values,
-            borderColor: config.color || "#22d3ee",
-            backgroundColor: config.fillColor || "rgba(34, 211, 238, 0.15)",
-            borderWidth: 3,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-            pointBackgroundColor: config.pointColor || config.color || "#22d3ee",
-            fill: true,
-            tension: 0.3,
-          },
-        ],
-      },
-      options: baseOptions(config.yTitle, {
-        currencyCode: config.currencyCode || "",
-        isPercent: Boolean(config.isPercent),
-      }),
+      const labels = Array.isArray(config.labels) ? config.labels : [];
+      const values = Array.isArray(config.values) ? config.values : [];
+      const sampled = downsampleSeries(labels, values, Number(config.maxPoints || 240));
+
+      const chart = new Chart(el, {
+        type: "line",
+        data: {
+          labels: sampled.labels,
+          datasets: [
+            {
+              label: config.label || "Series",
+              data: sampled.values,
+              borderColor: config.color || "#22d3ee",
+              backgroundColor: config.fillColor || "rgba(34, 211, 238, 0.15)",
+              borderWidth: 3,
+              pointBackgroundColor: config.pointColor || config.color || "#22d3ee",
+              fill: true,
+              tension: 0.3,
+            },
+          ],
+        },
+        options: baseOptions(config.yTitle, {
+          currencyCode: config.currencyCode || "",
+          isPercent: Boolean(config.isPercent),
+        }, sampled.values.length),
+      });
+
+      instances.set(canvasId, chart);
     });
-
-    instances.set(canvasId, chart);
   }
 
   window.QueueCharts = {

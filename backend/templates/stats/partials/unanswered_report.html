@@ -1,6 +1,7 @@
 <div class="space-y-2">
   <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
   <p class="text-sm text-slate-300">{% tr "Всего" %}: {{ total }} | Avg Wait: {{ avg_wait }}s</p>
+  <p class="text-sm text-slate-400">{% tr "Показаны записи" %}: {{ start_index }}-{{ end_index }} / {{ total }}</p>
   <div class="overflow-auto max-h-96">
     <table class="radix-table">
       <thead><tr><th>Time</th><th>Caller</th><th>Queue</th><th>Event</th><th>Start Pos</th><th>End Pos</th><th>Wait</th></tr></thead>
@@ -12,5 +13,10 @@
       {% endfor %}
       </tbody>
     </table>
+  </div>
+  <div class="flex items-center gap-2">
+    {% if has_prev %}<a class="radix-button-secondary" href="{{ prev_page_url }}">{% tr "Назад" %}</a>{% endif %}
+    <span class="text-sm text-slate-300">{% tr "Страница" %} {{ page }} / {{ total_pages }}</span>
+    {% if has_next %}<a class="radix-button-secondary" href="{{ next_page_url }}">{% tr "Вперед" %}</a>{% endif %}
   </div>
 </div>

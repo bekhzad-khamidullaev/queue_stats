@@ -6,15 +6,15 @@ services:
     container_name: queue-stats-backend
     environment:
       DJANGO_DEBUG: "true"
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,10.10.134.62"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,10.10.134.62,192.168.88.171"
       DB_ENGINE: "mysql"
-      DB_HOST: "10.10.134.62"
+      DB_HOST: "${DB_HOST:-10.10.134.62}"
       DB_PORT: "3306"
-      DB_NAME: "asteriskcdrdb"
-      DB_USER: "queue_stats"
-      DB_PASSWORD: "Qstats_2026!"
+      DB_NAME: "${DB_NAME:-asteriskcdrdb}"
+      DB_USER: "${DB_USER:-queue_stats}"
+      DB_PASSWORD: "${DB_PASSWORD:-Qstats_2026!}"
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - /var/spool/asterisk/monitor:/var/spool/asterisk/monitor:ro
