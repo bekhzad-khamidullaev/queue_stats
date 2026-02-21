@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from django.conf import settings as django_settings
@@ -26,6 +27,7 @@ from accounts.models import UserRoles
 from settings.models import AgentDisplayMapping, GeneralSettings, OperatorPayoutRate, QueueDisplayMapping
 from .ami_manager import AMIManager
 from .i18n_map import tr as i18n_tr
+from .models import CallTranscription
 from .views import _fetch_queuelog_rows, _normalize_list, _parse_datetime
 
 _AGENT_EXT_RE = re.compile(r"\b([0-9]{3,6})\b")
@@ -218,6 +220,35 @@ def _unique_non_empty(values: List[str]) -> List[str]:
     return unique
 
 
+def _is_internal_party(value: str) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    aliases = _agent_aliases(raw)
+    if any(alias.isdigit() and 2 <= len(alias) <= 6 for alias in aliases):
+        return True
+    lowered = raw.lower()
+    return lowered.startswith(("sip/", "pjsip/", "local/", "agent/"))
+
+
+def _classify_call_direction(src: str, dst: str, dcontext: str, queue_agent: str) -> str:
+    src_internal = _is_internal_party(src)
+    dst_internal = _is_internal_party(dst)
+    dcontext_lower = str(dcontext or "").strip().lower()
+
+    if src_internal and not dst_internal:
+        return "outgoing"
+    if dst_internal and not src_internal:
+        return "incoming"
+    if queue_agent:
+        return "incoming"
+    if "from-internal" in dcontext_lower:
+        return "outgoing"
+    if any(token in dcontext_lower for token in ("from-trunk", "from-pstn", "from-external")):
+        return "incoming"
+    return "unknown"
+
+
 def _get_available_queues() -> List[str]:
     queues: List[str] = []
     with connections["default"].cursor() as cursor:
@@ -359,6 +390,7 @@ def _answered_dataset(request: HttpRequest) -> Dict[str, Any]:
         agent = str(row.get("agent") or "")
         flat_rows.append(
             {
+                "callid": callid,
                 "time": row.get("time"),
                 "caller": caller_map.get(callid, ""),
                 "queue": queue,
@@ -396,6 +428,7 @@ def _unanswered_dataset(request: HttpRequest) -> Dict[str, Any]:
         queue = str(row.get("queuename") or "")
         flat_rows.append(
             {
+                "callid": callid,
                 "time": row.get("time"),
                 "caller": caller_map.get(callid, ""),
                 "queue": queue,
@@ -514,6 +547,184 @@ def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
         data = filtered
 
     return {"start": start, "end": end, "rows": data[:1000], "total": len(data)}
+
+
+def _call_detail_dataset(callid: str) -> Dict[str, Any]:
+    qmap = _queue_map()
+    amap = _agent_map()
+    normalized_callid = str(callid or "").strip()
+    cdr_row: Dict[str, Any] = {}
+
+    with connections["default"].cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                uniqueid, calldate, src, dst, dcontext, channel, dstchannel,
+                lastapp, lastdata, duration, billsec, disposition, recordingfile
+            FROM cdr
+            WHERE uniqueid = %s
+            ORDER BY calldate DESC
+            LIMIT 1
+            """,
+            [normalized_callid],
+        )
+        row = cursor.fetchone()
+        if row:
+            columns = [col[0] for col in cursor.description]
+            cdr_row = dict(zip(columns, row))
+
+        cursor.execute(
+            """
+            SELECT time, callid, queuename, agent, event, data1, data2, data3, data4, data5
+            FROM queuelog
+            WHERE callid = %s
+            ORDER BY time ASC
+            LIMIT 1000
+            """,
+            [normalized_callid],
+        )
+        qlog_columns = [col[0] for col in cursor.description]
+        qlog_events = [dict(zip(qlog_columns, r)) for r in cursor.fetchall()]
+
+    caller = ""
+    event_rows: List[Dict[str, Any]] = []
+    outcome = "IN_PROGRESS"
+    for row in qlog_events:
+        queue_raw = str(row.get("queuename") or "")
+        agent_raw = str(row.get("agent") or "")
+        event_name = str(row.get("event") or "")
+        if event_name == "ENTERQUEUE" and not caller:
+            caller = str(row.get("data2") or "")
+        if event_name in {"COMPLETECALLER", "COMPLETEAGENT"}:
+            outcome = "ANSWERED"
+        elif event_name == "ABANDON":
+            outcome = "ABANDONED"
+        elif event_name == "EXITWITHTIMEOUT":
+            outcome = "TIMEOUT"
+        event_rows.append(
+            {
+                "time": row.get("time"),
+                "event": event_name,
+                "queue": queue_raw,
+                "queue_display": _display_queue(queue_raw, qmap),
+                "agent": agent_raw,
+                "agent_display": _display_agent(agent_raw, amap) if agent_raw else "",
+                "data1": row.get("data1"),
+                "data2": row.get("data2"),
+                "data3": row.get("data3"),
+                "data4": row.get("data4"),
+                "data5": row.get("data5"),
+            }
+        )
+
+    if cdr_row:
+        operator_system = str(cdr_row.get("dstchannel") or "")
+        cdr_row["operator_display"] = _display_agent(operator_system, amap) if operator_system else ""
+        cdr_row["has_recording"] = bool(cdr_row.get("recordingfile"))
+
+    if not caller and cdr_row:
+        caller = str(cdr_row.get("src") or "")
+
+    transcription = CallTranscription.objects.filter(callid=normalized_callid).first()
+    conf = _get_general_settings()
+    transcription_configured = bool((conf.transcription_url or "").strip() and (conf.transcription_api_key or "").strip())
+    transcription_text = str(transcription.text or "").strip() if transcription else ""
+    transcription_chunks = [part.strip() for part in re.split(r"(?<=[.!?])\s+", transcription_text) if part.strip()]
+
+    return {
+        "callid": normalized_callid,
+        "caller": caller,
+        "outcome": outcome,
+        "cdr": cdr_row,
+        "events": event_rows,
+        "has_data": bool(cdr_row) or bool(event_rows),
+        "transcription": transcription,
+        "transcription_text": transcription_text,
+        "transcription_chunks": transcription_chunks,
+        "transcription_configured": transcription_configured,
+    }
+
+
+def _fetch_recording_bytes_for_call(callid: str) -> tuple[str, bytes, str]:
+    recording_path = _recording_file_by_uniqueid(callid)
+    local_path = _resolve_recording_local_path(recording_path)
+    if local_path:
+        content_type = mimetypes.guess_type(str(local_path))[0] or "application/octet-stream"
+        return local_path.name, local_path.read_bytes(), content_type
+
+    conf = _get_general_settings()
+    if not conf.download_url:
+        raise Http404("Recording not available")
+
+    params = {"url": recording_path, "token": conf.download_token}
+    auth = (conf.download_user, conf.download_password)
+    upstream = requests.get(conf.download_url, params=params, auth=auth, timeout=(5, 60))
+    upstream.raise_for_status()
+    filename = os.path.basename(recording_path) or f"{callid}.wav"
+    content_type = upstream.headers.get("Content-Type", "application/octet-stream")
+    return filename, upstream.content, content_type
+
+
+def _transcribe_call(callid: str) -> tuple[bool, str]:
+    conf = _get_general_settings()
+    api_url = str(conf.transcription_url or "").strip()
+    api_key = str(conf.transcription_api_key or "").strip()
+    if not api_url or not api_key:
+        return False, i18n_tr("Не настроен URL/API ключ сервиса транскрибации")
+
+    transcription, _ = CallTranscription.objects.get_or_create(callid=callid)
+    transcription.status = CallTranscription.Status.PROCESSING
+    transcription.error_message = ""
+    transcription.save(update_fields=["status", "error_message", "updated_at"])
+
+    try:
+        filename, file_bytes, content_type = _fetch_recording_bytes_for_call(callid)
+        request_headers = {"X-API-KEY": api_key, "Accept": "application/json"}
+        request_files = {"file": (filename, file_bytes, content_type)}
+        request_timeout = (10, 300)
+        try:
+            response = requests.post(
+                api_url,
+                headers=request_headers,
+                files=request_files,
+                timeout=request_timeout,
+            )
+        except requests.RequestException:
+            parsed = urlparse(api_url)
+            if parsed.scheme != "https":
+                raise
+            # Some endpoints are plain HTTP but mistakenly configured as HTTPS.
+            fallback_url = urlunparse(parsed._replace(scheme="http"))
+            response = requests.post(
+                fallback_url,
+                headers=request_headers,
+                files=request_files,
+                timeout=request_timeout,
+            )
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            raise ValueError(i18n_tr("Сервис вернул пустой текст"))
+
+        transcription.status = CallTranscription.Status.SUCCESS
+        transcription.text = text
+        transcription.error_message = ""
+        transcription.save(update_fields=["status", "text", "error_message", "updated_at"])
+        return True, i18n_tr("Транскрипт успешно получен")
+    except Http404:
+        error_message = i18n_tr("Аудиозапись для звонка не найдена")
+    except requests.RequestException as exc:
+        error_message = f"{i18n_tr('Ошибка запроса к сервису транскрибации')}: {exc}"
+    except (ValueError, TypeError) as exc:
+        error_message = str(exc)
+    except Exception as exc:
+        error_message = f"{i18n_tr('Ошибка транскрибации')}: {exc}"
+
+    transcription.status = CallTranscription.Status.FAILED
+    transcription.error_message = error_message
+    transcription.save(update_fields=["status", "error_message", "updated_at"])
+    return False, error_message
 
 
 def _summary_dataset(request: HttpRequest) -> Dict[str, Any]:
@@ -641,6 +852,76 @@ def _analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         LIMIT 200
     """
 
+    queue_clause_q = f" AND q.queuename IN ({','.join(['%s'] * len(queues))})" if queues else ""
+    caller_agent_clause = (
+        f"""
+        AND EXISTS (
+            SELECT 1
+            FROM queuelog qa
+            WHERE qa.callid = q.callid
+              AND qa.event IN ('COMPLETECALLER','COMPLETEAGENT')
+              AND qa.agent IN ({','.join(['%s'] * len(agents))})
+        )
+        """
+        if agents
+        else ""
+    )
+    caller_params: List[Any] = [start, end, *queues, *agents]
+    sql_top_callers = f"""
+        SELECT TRIM(q.data2) AS caller, COUNT(DISTINCT q.callid) AS calls
+        FROM queuelog q
+        WHERE q.time >= %s AND q.time <= %s
+          AND q.event = 'ENTERQUEUE'
+          {queue_clause_q}
+          AND q.data2 IS NOT NULL
+          AND TRIM(q.data2) <> ''
+          AND LOWER(TRIM(q.data2)) NOT IN ('unknown','<unknown>')
+          {caller_agent_clause}
+        GROUP BY caller
+        ORDER BY calls DESC, caller ASC
+        LIMIT 25
+    """
+
+    cdr_queue_clause = (
+        f"""
+        AND EXISTS (
+            SELECT 1
+            FROM queuelog qf
+            WHERE qf.callid = c.uniqueid
+              AND qf.queuename IN ({','.join(['%s'] * len(queues))})
+        )
+        """
+        if queues
+        else ""
+    )
+    cdr_params: List[Any] = [start, end, *queues]
+    sql_operator_cdr = f"""
+        SELECT
+            c.uniqueid,
+            c.calldate,
+            c.src,
+            c.dst,
+            c.dcontext,
+            c.channel,
+            c.dstchannel,
+            c.billsec,
+            ql.agent AS queue_agent
+        FROM cdr c
+        LEFT JOIN (
+            SELECT
+                callid,
+                SUBSTRING_INDEX(GROUP_CONCAT(agent ORDER BY time DESC SEPARATOR ','), ',', 1) AS agent
+            FROM queuelog
+            WHERE event IN ('CONNECT', 'COMPLETECALLER', 'COMPLETEAGENT')
+              AND agent IS NOT NULL AND agent <> ''
+            GROUP BY callid
+        ) ql ON ql.callid = c.uniqueid
+        WHERE c.calldate >= %s AND c.calldate <= %s
+          {cdr_queue_clause}
+        ORDER BY c.calldate ASC
+        LIMIT 50000
+    """
+
     with connections["default"].cursor() as cursor:
         cursor.execute(sql_daily, queue_params)
         daily = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
@@ -653,6 +934,12 @@ def _analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
 
         cursor.execute(sql_agents, queue_agent_params)
         top_agents = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+
+        cursor.execute(sql_top_callers, caller_params)
+        top_callers = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+
+        cursor.execute(sql_operator_cdr, cdr_params)
+        operator_cdr_rows = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
 
     total_answered = sum(int(x.get("answered") or 0) for x in daily)
     total_abandoned = sum(int(x.get("abandoned") or 0) for x in daily)
@@ -693,6 +980,124 @@ def _analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         row["talk_min"] = round(talk / 60, 2)
         row["share_answered"] = round(calls * 100 / total_answered, 2) if total_answered else 0
 
+    agent_filter_set = set()
+    for raw in agents:
+        for key in _agent_aliases(raw):
+            agent_filter_set.add(key)
+
+    operator_stats_map: Dict[str, Dict[str, Any]] = {}
+    daily_direction_talk: Dict[str, Dict[str, int]] = {}
+    total_incoming_talk_sec = 0
+    total_outgoing_talk_sec = 0
+    total_incoming_calls = 0
+    total_outgoing_calls = 0
+
+    for row in operator_cdr_rows:
+        billsec = int(row.get("billsec") or 0)
+        if billsec <= 0:
+            continue
+
+        queue_agent = str(row.get("queue_agent") or "").strip()
+        operator_raw = queue_agent or str(row.get("dstchannel") or "").strip() or str(row.get("channel") or "").strip()
+        if not operator_raw:
+            src = str(row.get("src") or "").strip()
+            dst = str(row.get("dst") or "").strip()
+            if _is_internal_party(src):
+                operator_raw = src
+            elif _is_internal_party(dst):
+                operator_raw = dst
+        if not operator_raw:
+            continue
+
+        aliases = _agent_aliases(operator_raw)
+        if not aliases:
+            continue
+        operator_key = aliases[-1]
+
+        if agent_filter_set and not (set(aliases) & agent_filter_set):
+            continue
+
+        direction = _classify_call_direction(
+            str(row.get("src") or ""),
+            str(row.get("dst") or ""),
+            str(row.get("dcontext") or ""),
+            queue_agent,
+        )
+        day_label = str(row.get("calldate") or "")[:10]
+
+        operator_stats_map.setdefault(
+            operator_key,
+            {
+                "agent": operator_key,
+                "agent_display": _display_agent(operator_raw, amap),
+                "handled_calls": 0,
+                "talk_sec_total": 0,
+                "incoming_calls": 0,
+                "incoming_talk_sec": 0,
+                "outgoing_calls": 0,
+                "outgoing_talk_sec": 0,
+                "unknown_calls": 0,
+                "unknown_talk_sec": 0,
+            },
+        )
+        stat = operator_stats_map[operator_key]
+        stat["handled_calls"] += 1
+        stat["talk_sec_total"] += billsec
+        if direction == "incoming":
+            stat["incoming_calls"] += 1
+            stat["incoming_talk_sec"] += billsec
+            total_incoming_calls += 1
+            total_incoming_talk_sec += billsec
+        elif direction == "outgoing":
+            stat["outgoing_calls"] += 1
+            stat["outgoing_talk_sec"] += billsec
+            total_outgoing_calls += 1
+            total_outgoing_talk_sec += billsec
+        else:
+            stat["unknown_calls"] += 1
+            stat["unknown_talk_sec"] += billsec
+
+        if day_label:
+            daily_direction_talk.setdefault(day_label, {"day": day_label, "incoming_talk_sec": 0, "outgoing_talk_sec": 0})
+            if direction == "incoming":
+                daily_direction_talk[day_label]["incoming_talk_sec"] += billsec
+            elif direction == "outgoing":
+                daily_direction_talk[day_label]["outgoing_talk_sec"] += billsec
+
+    operator_duration_rows = sorted(
+        operator_stats_map.values(),
+        key=lambda item: (int(item.get("handled_calls") or 0), int(item.get("talk_sec_total") or 0)),
+        reverse=True,
+    )
+    rank_calls = sorted(
+        operator_duration_rows,
+        key=lambda item: (int(item.get("handled_calls") or 0), int(item.get("talk_sec_total") or 0)),
+        reverse=True,
+    )
+    rank_talk = sorted(
+        operator_duration_rows,
+        key=lambda item: (int(item.get("talk_sec_total") or 0), int(item.get("handled_calls") or 0)),
+        reverse=True,
+    )
+    rank_by_calls_map = {str(row.get("agent")): idx for idx, row in enumerate(rank_calls, start=1)}
+    rank_by_talk_map = {str(row.get("agent")): idx for idx, row in enumerate(rank_talk, start=1)}
+    for row in operator_duration_rows:
+        handled_calls = int(row.get("handled_calls") or 0)
+        talk_sec_total = int(row.get("talk_sec_total") or 0)
+        row["avg_talk_sec"] = round(talk_sec_total / handled_calls, 2) if handled_calls else 0
+        row["talk_min_total"] = round(talk_sec_total / 60, 2)
+        row["incoming_talk_min"] = round(int(row.get("incoming_talk_sec") or 0) / 60, 2)
+        row["outgoing_talk_min"] = round(int(row.get("outgoing_talk_sec") or 0) / 60, 2)
+        row["rank_by_calls"] = rank_by_calls_map.get(str(row.get("agent")), 0)
+        row["rank_by_talk"] = rank_by_talk_map.get(str(row.get("agent")), 0)
+
+    top_operator_by_calls = rank_calls[:20]
+    top_operator_by_talk = rank_talk[:20]
+    direction_daily_rows = [daily_direction_talk[key] for key in sorted(daily_direction_talk.keys())]
+    for row in direction_daily_rows:
+        row["incoming_talk_min"] = round(int(row.get("incoming_talk_sec") or 0) / 60, 2)
+        row["outgoing_talk_min"] = round(int(row.get("outgoing_talk_sec") or 0) / 60, 2)
+
     daily_chart_input: List[Dict[str, Any]] = []
     for row in daily:
         daily_chart_input.append(
@@ -709,6 +1114,10 @@ def _analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
                 "total": int(row.get("answered") or 0) + int(row.get("unanswered") or 0),
             }
         )
+
+    for row in top_callers:
+        row["caller"] = str(row.get("caller") or "").strip()
+        row["calls"] = int(row.get("calls") or 0)
 
     return {
         "start": start,
@@ -727,14 +1136,28 @@ def _analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         "kpi_total_talk_min": round(sum_talk_answered / 60, 2),
         "kpi_active_queues": len([x for x in per_queue if int(x.get("total_calls") or 0) > 0]),
         "kpi_active_agents": len([x for x in top_agents if int(x.get("answered") or 0) > 0]),
+        "kpi_incoming_talk_min": round(total_incoming_talk_sec / 60, 2),
+        "kpi_outgoing_talk_min": round(total_outgoing_talk_sec / 60, 2),
+        "kpi_incoming_calls": total_incoming_calls,
+        "kpi_outgoing_calls": total_outgoing_calls,
         "daily": daily,
         "hourly": hourly,
         "per_queue": per_queue,
         "top_agents": top_agents,
+        "top_callers": top_callers,
+        "operator_duration_rows": operator_duration_rows,
+        "operator_rank_by_calls": top_operator_by_calls,
+        "operator_rank_by_talk": top_operator_by_talk,
+        "daily_direction_talk": direction_daily_rows,
         "daily_line_chart": _line_chart(daily_chart_input, "day", "total", max_items=31),
         "hourly_bar_chart": _bar_chart(hourly_chart_input, "hour", "total", max_items=24),
         "queue_calls_chart": _bar_chart(per_queue, "queue_display", "total_calls", max_items=16),
         "agent_answered_chart": _bar_chart(top_agents, "agent_display", "answered", max_items=16),
+        "frequent_callers_chart": _bar_chart(top_callers, "caller", "calls", max_items=16),
+        "operator_total_calls_chart": _bar_chart(top_operator_by_calls, "agent_display", "handled_calls", max_items=16),
+        "operator_total_talk_chart": _bar_chart(top_operator_by_talk, "agent_display", "talk_min_total", max_items=16),
+        "incoming_talk_daily_chart": _line_chart(direction_daily_rows, "day", "incoming_talk_min", max_items=31),
+        "outgoing_talk_daily_chart": _line_chart(direction_daily_rows, "day", "outgoing_talk_min", max_items=31),
     }
 
 
@@ -1070,6 +1493,7 @@ def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, s
         channel = str(row.get("Channel", ""))
         caller = str(row.get("CallerIDNum", ""))
         connected = str(row.get("ConnectedLineNum", ""))
+        callid = str(row.get("Linkedid") or row.get("LinkedId") or row.get("BridgeId") or row.get("BridgeID") or "").strip()
         if channel_filter and channel_filter not in channel.lower():
             continue
         caller_human = _human_party(caller, amap)
@@ -1079,6 +1503,7 @@ def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, s
             continue
         active_calls.append(
             {
+                "callid": callid,
                 "channel": _human_channel(channel, amap),
                 "caller": caller_human,
                 "connected": connected_human,
@@ -1230,14 +1655,14 @@ def _draw_line_plot_on_canvas(pdf, title: str, x: float, y: float, w: float, h: 
         pdf.drawString(lx, y + 4, str(labels[idx])[:8])
 
 
-def _draw_plots_pdf(title: str, plots: List[Dict[str, Any]]) -> bytes:
+def _draw_plots_pdf(
+    title: str,
+    plots: List[Dict[str, Any]],
+    tables: List[Dict[str, Any]] | None = None,
+) -> bytes:
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=landscape(A4))
     page_w, page_h = landscape(A4)
-    pdf.setFillColor(colors.HexColor("#111827"))
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(12 * mm, page_h - 12 * mm, title[:120])
-
     margin = 10 * mm
     gap = 6 * mm
     plot_w = (page_w - (margin * 2) - gap) / 2
@@ -1252,14 +1677,64 @@ def _draw_plots_pdf(title: str, plots: List[Dict[str, Any]]) -> bytes:
         (margin + plot_w + gap, base_y),
     ]
 
-    for idx, plot in enumerate(plots[:4]):
-        x, y = positions[idx]
-        labels = [str(x) for x in plot.get("labels", [])]
-        values = [float(x or 0) for x in plot.get("values", [])]
-        if plot.get("type") == "line":
-            _draw_line_plot_on_canvas(pdf, plot.get("title", "Plot"), x, y, plot_w, plot_h, labels, values)
-        else:
-            _draw_bar_plot_on_canvas(pdf, plot.get("title", "Plot"), x, y, plot_w, plot_h, labels, values)
+    for page_index in range(0, len(plots), 4):
+        if page_index > 0:
+            pdf.showPage()
+        pdf.setFillColor(colors.HexColor("#111827"))
+        pdf.setFont("Helvetica-Bold", 14)
+        page_no = (page_index // 4) + 1
+        pdf.drawString(12 * mm, page_h - 12 * mm, f"{title[:96]} (charts {page_no})")
+
+        for idx, plot in enumerate(plots[page_index : page_index + 4]):
+            x, y = positions[idx]
+            labels = [str(val) for val in plot.get("labels", [])]
+            values = [float(val or 0) for val in plot.get("values", [])]
+            if plot.get("type") == "line":
+                _draw_line_plot_on_canvas(pdf, plot.get("title", "Plot"), x, y, plot_w, plot_h, labels, values)
+            else:
+                _draw_bar_plot_on_canvas(pdf, plot.get("title", "Plot"), x, y, plot_w, plot_h, labels, values)
+
+    for table in (tables or []):
+        headers = [str(h) for h in table.get("headers", [])]
+        rows = table.get("rows", []) or []
+        if not headers:
+            continue
+
+        col_count = max(1, len(headers))
+        col_width = (page_w - 20 * mm) / col_count
+        x = 10 * mm
+        y = page_h - 24 * mm
+        rows_printed = 0
+
+        while rows_printed < len(rows) or rows_printed == 0:
+            pdf.showPage()
+            pdf.setFillColor(colors.HexColor("#111827"))
+            pdf.setFont("Helvetica-Bold", 14)
+            pdf.drawString(12 * mm, page_h - 12 * mm, str(table.get("title") or "Table")[:120])
+
+            header_y = page_h - 24 * mm
+            pdf.setFillColor(colors.HexColor("#1F2937"))
+            pdf.rect(x, header_y, page_w - 20 * mm, 8 * mm, fill=1, stroke=0)
+            pdf.setFillColor(colors.white)
+            pdf.setFont("Helvetica-Bold", 8)
+            for i, header in enumerate(headers):
+                pdf.drawString(x + (i * col_width) + 1.5 * mm, header_y + 2.5 * mm, header[:26])
+
+            y = header_y - 7 * mm
+            pdf.setFont("Helvetica", 7)
+            pdf.setFillColor(colors.black)
+            if not rows:
+                pdf.drawString(x + 1.5 * mm, y, "No data")
+                break
+
+            while rows_printed < len(rows):
+                if y < 12 * mm:
+                    break
+                row = rows[rows_printed]
+                for i, value in enumerate(row[:col_count]):
+                    pdf.drawString(x + (i * col_width) + 1.5 * mm, y, str(value)[:26])
+                rows_printed += 1
+                y -= 5 * mm
 
     pdf.save()
     output.seek(0)
@@ -1400,6 +1875,31 @@ def report_cdr_page(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+def call_detail_page(request: HttpRequest, callid: str) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+    if not callid or not all(c.isalnum() or c in ".-_:" for c in callid):
+        raise Http404("Invalid callid")
+
+    notice = ""
+    error = ""
+    if request.method == "POST":
+        action = (request.POST.get("action") or "").strip().lower()
+        if action == "transcribe":
+            ok, message = _transcribe_call(callid)
+            if ok:
+                notice = message
+            else:
+                error = message
+
+    context = _base_context(request)
+    context.update(_call_detail_dataset(callid))
+    context["notice"] = notice
+    context["error"] = error
+    return render(request, "stats/reports/call_detail_page.html", context)
+
+
+@login_required
 def realtime_page(request: HttpRequest) -> HttpResponse:
     if not _user_allowed(request):
         return HttpResponse("forbidden", status=403)
@@ -1480,6 +1980,8 @@ def settings_page(request: HttpRequest) -> HttpResponse:
             settings_obj.default_payout_rate_per_minute = request.POST.get("default_payout_rate_per_minute") or settings_obj.default_payout_rate_per_minute
             settings_obj.sla_target_percent = request.POST.get("sla_target_percent") or settings_obj.sla_target_percent
             settings_obj.sla_target_wait_seconds = request.POST.get("sla_target_wait_seconds") or settings_obj.sla_target_wait_seconds
+            settings_obj.transcription_url = (request.POST.get("transcription_url") or settings_obj.transcription_url or "").strip()
+            settings_obj.transcription_api_key = (request.POST.get("transcription_api_key") or settings_obj.transcription_api_key or "").strip()
 
             start_raw = (request.POST.get("business_day_start") or "").strip()
             end_raw = (request.POST.get("business_day_end") or "").strip()
@@ -1883,9 +2385,22 @@ def export_dashboard_traffic_pdf(request: HttpRequest) -> HttpResponse:
             "values": [r.get("total") for r in data["hourly"]],
         },
     ]
+    tables = [
+        {
+            "title": "Traffic daily table",
+            "headers": ["day", "answered", "unanswered", "total"],
+            "rows": [[r.get("day"), r.get("answered"), r.get("unanswered"), r.get("total")] for r in data["daily"]],
+        },
+        {
+            "title": "Traffic hourly table",
+            "headers": ["hour", "answered", "unanswered", "total"],
+            "rows": [[r.get("hour"), r.get("answered"), r.get("unanswered"), r.get("total")] for r in data["hourly"]],
+        },
+    ]
     pdf_data = _draw_plots_pdf(
-        "Dashboard Traffic Plots",
+        "Dashboard Traffic",
         plots,
+        tables=tables,
     )
     response = HttpResponse(pdf_data, content_type="application/pdf")
     response["Content-Disposition"] = 'attachment; filename="dashboard_traffic.pdf"'
@@ -1911,9 +2426,31 @@ def export_dashboard_queues_pdf(request: HttpRequest) -> HttpResponse:
             "values": [r.get("sla") for r in data["per_queue"][:16]],
         },
     ]
+    tables = [
+        {
+            "title": "Queues KPI table",
+            "headers": ["queue", "total", "answered", "unanswered", "sla", "abandon", "timeout", "avg_hold", "avg_talk", "aht"],
+            "rows": [
+                [
+                    r.get("queue_display"),
+                    r.get("total_calls"),
+                    r.get("answered"),
+                    r.get("unanswered"),
+                    r.get("sla"),
+                    r.get("abandon_rate"),
+                    r.get("timeout_rate"),
+                    r.get("avg_hold"),
+                    r.get("avg_talk"),
+                    r.get("aht"),
+                ]
+                for r in data["per_queue"]
+            ],
+        },
+    ]
     pdf_data = _draw_plots_pdf(
-        "Dashboard Queues Plots",
+        "Dashboard Queues",
         plots,
+        tables=tables,
     )
     response = HttpResponse(pdf_data, content_type="application/pdf")
     response["Content-Disposition"] = 'attachment; filename="dashboard_queues.pdf"'
@@ -1939,9 +2476,29 @@ def export_dashboard_operators_pdf(request: HttpRequest) -> HttpResponse:
             "values": [r.get("payout_total") for r in data["rows_operators"][:16]],
         },
     ]
+    tables = [
+        {
+            "title": "Operators KPI table",
+            "headers": ["operator", "answered", "talk_min", "avg_talk", "aht", "share", "rate", "payout"],
+            "rows": [
+                [
+                    r.get("agent_display"),
+                    r.get("answered"),
+                    r.get("talk_min"),
+                    r.get("avg_talk"),
+                    r.get("aht"),
+                    r.get("share_answered"),
+                    r.get("rate_per_minute"),
+                    r.get("payout_total"),
+                ]
+                for r in data["rows_operators"]
+            ],
+        },
+    ]
     pdf_data = _draw_plots_pdf(
-        "Dashboard Operators Plots",
+        "Dashboard Operators",
         plots,
+        tables=tables,
     )
     response = HttpResponse(pdf_data, content_type="application/pdf")
     response["Content-Disposition"] = 'attachment; filename="dashboard_operators.pdf"'
@@ -1995,6 +2552,44 @@ def export_analytics_excel(request: HttpRequest) -> HttpResponse:
             ]
         )
 
+    callers = workbook.create_sheet("FrequentCallers")
+    callers.append(["caller", "calls"])
+    for row in data.get("top_callers", []):
+        callers.append([row.get("caller"), row.get("calls")])
+
+    operators = workbook.create_sheet("OperatorDurations")
+    operators.append(
+        [
+            "operator",
+            "handled_calls",
+            "talk_sec_total",
+            "talk_min_total",
+            "incoming_calls",
+            "incoming_talk_min",
+            "outgoing_calls",
+            "outgoing_talk_min",
+            "avg_talk_sec",
+            "rank_by_calls",
+            "rank_by_talk",
+        ]
+    )
+    for row in data.get("operator_duration_rows", []):
+        operators.append(
+            [
+                row.get("agent_display"),
+                row.get("handled_calls"),
+                row.get("talk_sec_total"),
+                row.get("talk_min_total"),
+                row.get("incoming_calls"),
+                row.get("incoming_talk_min"),
+                row.get("outgoing_calls"),
+                row.get("outgoing_talk_min"),
+                row.get("avg_talk_sec"),
+                row.get("rank_by_calls"),
+                row.get("rank_by_talk"),
+            ]
+        )
+
     output = BytesIO()
     workbook.save(output)
     output.seek(0)
@@ -2033,8 +2628,84 @@ def export_analytics_pdf(request: HttpRequest) -> HttpResponse:
             "labels": [r.get("agent_display") for r in data["top_agents"][:16]],
             "values": [r.get("answered") for r in data["top_agents"][:16]],
         },
+        {
+            "type": "bar",
+            "title": "Frequent callers",
+            "labels": [r.get("caller") for r in data.get("top_callers", [])[:16]],
+            "values": [r.get("calls") for r in data.get("top_callers", [])[:16]],
+        },
+        {
+            "type": "bar",
+            "title": "Operator ranking by handled calls",
+            "labels": [r.get("agent_display") for r in data.get("operator_rank_by_calls", [])[:16]],
+            "values": [r.get("handled_calls") for r in data.get("operator_rank_by_calls", [])[:16]],
+        },
+        {
+            "type": "bar",
+            "title": "Operator ranking by talk minutes",
+            "labels": [r.get("agent_display") for r in data.get("operator_rank_by_talk", [])[:16]],
+            "values": [r.get("talk_min_total") for r in data.get("operator_rank_by_talk", [])[:16]],
+        },
     ]
-    pdf_data = _draw_plots_pdf("Analytics Dashboard Plots", plots)
+    tables = [
+        {
+            "title": "Analytics queues table",
+            "headers": ["queue", "total", "answered", "unanswered", "sla", "abandon", "timeout", "aht"],
+            "rows": [
+                [
+                    r.get("queue_display"),
+                    r.get("total_calls"),
+                    r.get("answered"),
+                    r.get("unanswered"),
+                    r.get("sla"),
+                    r.get("abandon_rate"),
+                    r.get("timeout_rate"),
+                    r.get("aht"),
+                ]
+                for r in data.get("per_queue", [])
+            ],
+        },
+        {
+            "title": "Analytics agents table",
+            "headers": ["operator", "answered", "share", "queues", "avg_hold", "avg_talk", "aht", "talk_min"],
+            "rows": [
+                [
+                    r.get("agent_display"),
+                    r.get("answered"),
+                    r.get("share_answered"),
+                    r.get("queues_count"),
+                    r.get("avg_hold"),
+                    r.get("avg_talk"),
+                    r.get("aht"),
+                    r.get("talk_min"),
+                ]
+                for r in data.get("top_agents", [])
+            ],
+        },
+        {
+            "title": "Frequent callers table",
+            "headers": ["caller", "calls"],
+            "rows": [[r.get("caller"), r.get("calls")] for r in data.get("top_callers", [])],
+        },
+        {
+            "title": "Operator duration table",
+            "headers": ["operator", "in_calls", "in_min", "out_calls", "out_min", "total_calls", "total_min", "avg_sec"],
+            "rows": [
+                [
+                    r.get("agent_display"),
+                    r.get("incoming_calls"),
+                    r.get("incoming_talk_min"),
+                    r.get("outgoing_calls"),
+                    r.get("outgoing_talk_min"),
+                    r.get("handled_calls"),
+                    r.get("talk_min_total"),
+                    r.get("avg_talk_sec"),
+                ]
+                for r in data.get("operator_duration_rows", [])
+            ],
+        },
+    ]
+    pdf_data = _draw_plots_pdf("Analytics Dashboard", plots, tables=tables)
     response = HttpResponse(pdf_data, content_type="application/pdf")
     response["Content-Disposition"] = 'attachment; filename="analytics_dashboard.pdf"'
     return response

@@ -11,6 +11,7 @@ urlpatterns = [
     path("reports/answered/", ui_views.report_answered_page, name="report-answered-page"),
     path("reports/unanswered/", ui_views.report_unanswered_page, name="report-unanswered-page"),
     path("reports/cdr/", ui_views.report_cdr_page, name="report-cdr-page"),
+    path("calls/<str:callid>/", ui_views.call_detail_page, name="call-detail-page"),
     path("realtime/", ui_views.realtime_page, name="realtime-page"),
     path("analytics/", ui_views.analytics_page, name="analytics-page"),
     path("payouts/", ui_views.payouts_page, name="payouts-page"),

@@ -36,11 +36,18 @@
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg talk</p><p class="text-2xl font-semibold">{{ kpi_avg_talk }}s</p></div>
 </section>
 
-<section class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">AHT</p><p class="text-2xl font-semibold">{{ kpi_aht }}s</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Total talk</p><p class="text-2xl font-semibold">{{ kpi_total_talk_min }} min</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Active queues</p><p class="text-2xl font-semibold">{{ kpi_active_queues }}</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Active agents</p><p class="text-2xl font-semibold">{{ kpi_active_agents }}</p></div>
+</section>
+
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Входящие звонки" %}</p><p class="text-2xl font-semibold">{{ kpi_incoming_calls }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Исходящие звонки" %}</p><p class="text-2xl font-semibold">{{ kpi_outgoing_calls }}</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Входящее время разговора" %}</p><p class="text-2xl font-semibold">{{ kpi_incoming_talk_min }} min</p></div>
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">{% tr "Исходящее время разговора" %}</p><p class="text-2xl font-semibold">{{ kpi_outgoing_talk_min }} min</p></div>
 </section>
 
 <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -68,6 +75,38 @@
       <canvas id="analyticsAgentAnsweredChart"></canvas>
     </div>
   </div>
+
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Часто звонящие номера" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsFrequentCallersChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Рейтинг операторов по количеству" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsOperatorCallsChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Рейтинг операторов по времени" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsOperatorTalkChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Тренд исходящего времени" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsOutgoingTalkTrendChart"></canvas>
+    </div>
+  </div>
+  <div class="radix-card p-4 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Тренд входящего времени" %}</h2>
+    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+      <canvas id="analyticsIncomingTalkTrendChart"></canvas>
+    </div>
+  </div>
+
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Дневная динамика" %}</h2>
     <table class="radix-table"><thead><tr><th>Day</th><th>Answered</th><th>Unanswered</th></tr></thead><tbody>{% for r in daily %}<tr><td>{{ r.day }}</td><td>{{ r.answered }}</td><td>{{ r.unanswered }}</td></tr>{% empty %}<tr><td colspan="3">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody></table>
@@ -91,6 +130,35 @@
       <table class="radix-table">
         <thead><tr><th>Operator</th><th>Answered</th><th>Share%</th><th>Queues</th><th>Avg hold</th><th>Avg talk</th><th>AHT</th><th>Talk min</th></tr></thead>
         <tbody>{% for r in top_agents %}<tr><td>{{ r.agent_display }}</td><td>{{ r.answered }}</td><td>{{ r.share_answered }}</td><td>{{ r.queues_count }}</td><td>{{ r.avg_hold }}</td><td>{{ r.avg_talk }}</td><td>{{ r.aht }}</td><td>{{ r.talk_min }}</td></tr>{% empty %}<tr><td colspan="8">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="radix-card p-4">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Топ часто звонящих" %}</h2>
+    <div class="overflow-auto max-h-[22rem]">
+      <table class="radix-table">
+        <thead><tr><th>{% tr "Номер" %}</th><th>{% tr "Звонков" %}</th></tr></thead>
+        <tbody>{% for r in top_callers %}<tr><td>{{ r.caller }}</td><td>{{ r.calls }}</td></tr>{% empty %}<tr><td colspan="2">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="radix-card p-4 lg:col-span-1">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Рейтинг операторов" %}</h2>
+    <div class="overflow-auto max-h-[22rem]">
+      <table class="radix-table">
+        <thead><tr><th>{% tr "Оператор" %}</th><th>{% tr "Звонков" %}</th><th>{% tr "Время (мин)" %}</th><th>{% tr "Место по звонкам" %}</th><th>{% tr "Место по времени" %}</th></tr></thead>
+        <tbody>{% for r in operator_duration_rows %}<tr><td>{{ r.agent_display }}</td><td>{{ r.handled_calls }}</td><td>{{ r.talk_min_total }}</td><td>{{ r.rank_by_calls }}</td><td>{{ r.rank_by_talk }}</td></tr>{% empty %}<tr><td colspan="5">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="radix-card p-4 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-3">{% tr "Длительность разговора по операторам (входящие/исходящие)" %}</h2>
+    <div class="overflow-auto max-h-[28rem]">
+      <table class="radix-table">
+        <thead><tr><th>{% tr "Оператор" %}</th><th>{% tr "Входящие звонки" %}</th><th>{% tr "Входящее время (мин)" %}</th><th>{% tr "Исходящие звонки" %}</th><th>{% tr "Исходящее время (мин)" %}</th><th>{% tr "Всего звонков" %}</th><th>{% tr "Всего время (мин)" %}</th><th>{% tr "Средн. длительность (сек)" %}</th></tr></thead>
+        <tbody>{% for r in operator_duration_rows %}<tr><td>{{ r.agent_display }}</td><td>{{ r.incoming_calls }}</td><td>{{ r.incoming_talk_min }}</td><td>{{ r.outgoing_calls }}</td><td>{{ r.outgoing_talk_min }}</td><td>{{ r.handled_calls }}</td><td>{{ r.talk_min_total }}</td><td>{{ r.avg_talk_sec }}</td></tr>{% empty %}<tr><td colspan="8">{% tr "Нет данных" %}</td></tr>{% endfor %}</tbody>
       </table>
     </div>
   </div>
@@ -134,6 +202,51 @@
       yTitle: "Calls",
       color: "#a78bfa",
       borderColor: "#8b5cf6"
+    });
+
+    window.QueueCharts.renderBarChart("analyticsFrequentCallersChart", {
+      labels: [{% for b in frequent_callers_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in frequent_callers_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Calls by caller",
+      yTitle: "Calls",
+      color: "#f59e0b",
+      borderColor: "#d97706"
+    });
+
+    window.QueueCharts.renderBarChart("analyticsOperatorCallsChart", {
+      labels: [{% for b in operator_total_calls_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in operator_total_calls_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Handled calls",
+      yTitle: "Calls",
+      color: "#38bdf8",
+      borderColor: "#0284c7"
+    });
+
+    window.QueueCharts.renderBarChart("analyticsOperatorTalkChart", {
+      labels: [{% for b in operator_total_talk_chart.bars %}"{{ b.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for b in operator_total_talk_chart.bars %}{{ b.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Talk minutes",
+      yTitle: "Minutes",
+      color: "#10b981",
+      borderColor: "#059669"
+    });
+
+    window.QueueCharts.renderLineChart("analyticsIncomingTalkTrendChart", {
+      labels: [{% for p in incoming_talk_daily_chart.points %}"{{ p.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for p in incoming_talk_daily_chart.points %}{{ p.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Incoming talk minutes",
+      yTitle: "Minutes",
+      color: "#22c55e",
+      fillColor: "rgba(34, 197, 94, 0.16)"
+    });
+
+    window.QueueCharts.renderLineChart("analyticsOutgoingTalkTrendChart", {
+      labels: [{% for p in outgoing_talk_daily_chart.points %}"{{ p.label|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for p in outgoing_talk_daily_chart.points %}{{ p.value|default:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+      label: "Outgoing talk minutes",
+      yTitle: "Minutes",
+      color: "#f97316",
+      fillColor: "rgba(249, 115, 22, 0.16)"
     });
   });
 </script>

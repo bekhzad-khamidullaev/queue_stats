@@ -10,7 +10,13 @@
       <tbody>
         {% for row in active_calls %}
         <tr>
-          <td>{{ row.channel }}</td><td>{{ row.caller }}</td><td>{{ row.connected }}</td><td>{{ row.duration }}</td><td>{{ row.application }}</td>
+          <td>
+            {% if row.callid %}
+              <a class="call-link" href="{% url 'call-detail-page' row.callid %}">{{ row.channel }}</a>
+            {% else %}
+              {{ row.channel }}
+            {% endif %}
+          </td><td>{{ row.caller }}</td><td>{{ row.connected }}</td><td>{{ row.duration }}</td><td>{{ row.application }}</td>
         </tr>
         {% endfor %}
       </tbody>

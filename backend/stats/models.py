@@ -77,3 +77,23 @@ class Cdr(models.Model):
     class Meta:
         managed = False
         db_table = "cdr"
+
+
+class CallTranscription(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    callid = models.CharField(max_length=255, unique=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    text = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        managed = True
+        db_table = "call_transcriptions"
+        ordering = ["-updated_at"]

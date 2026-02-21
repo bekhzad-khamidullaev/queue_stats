@@ -13,6 +13,8 @@ class GeneralSettings(models.Model):
     download_token = models.CharField("Токен сервиса загрузки", max_length=255, blank=True)
     download_user = models.CharField("Пользователь сервиса загрузки", max_length=100, blank=True)
     download_password = models.CharField("Пароль сервиса загрузки", max_length=255, blank=True)
+    transcription_url = models.CharField("URL сервиса транскрибации", max_length=255, blank=True, help_text="Например: http://198.163.206.26:5085/transcribe")
+    transcription_api_key = models.CharField("API ключ транскрибации", max_length=255, blank=True)
 
     # Asterisk DB Settings
     db_host = models.CharField("Хост БД", max_length=100, default="localhost")

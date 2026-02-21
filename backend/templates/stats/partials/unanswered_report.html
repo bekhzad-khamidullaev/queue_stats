@@ -6,7 +6,7 @@
       <thead><tr><th>Time</th><th>Caller</th><th>Queue</th><th>Event</th><th>Start Pos</th><th>End Pos</th><th>Wait</th></tr></thead>
       <tbody>
       {% for row in rows %}
-        <tr><td>{{ row.time }}</td><td>{{ row.caller }}</td><td>{{ row.queue_display }}</td><td>{{ row.event }}</td><td>{{ row.start_pos }}</td><td>{{ row.end_pos }}</td><td>{{ row.wait_sec }}</td></tr>
+        <tr class="call-row-hover"><td><a class="call-link" href="{% url 'call-detail-page' row.callid %}">{{ row.time }}</a></td><td>{{ row.caller }}</td><td>{{ row.queue_display }}</td><td>{{ row.event }}</td><td>{{ row.start_pos }}</td><td>{{ row.end_pos }}</td><td>{{ row.wait_sec }}</td></tr>
       {% empty %}
         <tr><td colspan="7">{% tr "Нет данных" %}</td></tr>
       {% endfor %}

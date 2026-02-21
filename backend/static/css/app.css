@@ -39,10 +39,10 @@
 }
 
 .radix-select-multi {
-  min-height: 11rem;
-  max-height: 11rem;
+  min-height: 6.5rem;
+  max-height: 6.5rem;
   overflow-y: auto;
-  padding: 0.35rem 0.5rem;
+  padding: 0.25rem 0.4rem;
 }
 
 .radix-select-multi option {
@@ -51,6 +51,8 @@
 
 .filters-grid {
   align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 260px)) !important;
+  gap: 0.65rem !important;
 }
 
 .filters-grid .radix-button,
@@ -99,6 +101,95 @@
   color: var(--slate-300);
   font-weight: 600;
   background: rgba(15, 23, 42, 0.8);
+}
+
+.call-link {
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.call-row-hover:hover td {
+  background: rgba(30, 58, 138, 0.16);
+}
+
+.dialog-chat {
+  max-height: 22rem;
+  overflow-y: auto;
+  border: 1px solid #34495e;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(34, 197, 94, 0.08), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(14, 165, 233, 0.08), transparent 42%),
+    #0f172a;
+  border-radius: 12px;
+  padding: 0.85rem;
+}
+
+.dialog-msg-row {
+  display: flex;
+  margin-bottom: 0.4rem;
+}
+
+.dialog-msg-row-in {
+  justify-content: flex-start;
+}
+
+.dialog-msg-row-out {
+  justify-content: flex-end;
+}
+
+.dialog-msg {
+  max-width: 78%;
+  border-radius: 12px;
+  padding: 0.5rem 0.7rem;
+  position: relative;
+  box-shadow: 0 3px 10px rgba(2, 6, 23, 0.35);
+}
+
+.dialog-msg-in {
+  background: #1e293b;
+  border: 1px solid rgba(100, 116, 139, 0.45);
+}
+
+.dialog-msg-in::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  background: #1e293b;
+  border-left: 1px solid rgba(100, 116, 139, 0.45);
+  border-bottom: 1px solid rgba(100, 116, 139, 0.45);
+  transform: rotate(45deg);
+}
+
+.dialog-msg-out {
+  background: #14532d;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.dialog-msg-out::before {
+  content: "";
+  position: absolute;
+  right: -6px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  background: #14532d;
+  border-right: 1px solid rgba(34, 197, 94, 0.35);
+  border-top: 1px solid rgba(34, 197, 94, 0.35);
+  transform: rotate(45deg);
+}
+
+.dialog-msg-text {
+  color: var(--slate-100);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.dialog-msg-row:last-child {
+  margin-bottom: 0;
 }
 
 .realtime-calls-table {

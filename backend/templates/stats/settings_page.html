@@ -33,6 +33,12 @@
     <label class="text-sm md:col-span-2">{% tr "SLA порог ожидания, сек" %}
       <input name="sla_target_wait_seconds" class="radix-input" type="number" min="0" value="{{ settings_obj.sla_target_wait_seconds }}" />
     </label>
+    <label class="text-sm md:col-span-2">{% tr "URL сервиса транскрибации" %}
+      <input name="transcription_url" class="radix-input" value="{{ settings_obj.transcription_url }}" placeholder="http://host:port/transcribe" />
+    </label>
+    <label class="text-sm">{% tr "API ключ транскрибации" %}
+      <input name="transcription_api_key" class="radix-input" type="password" value="{{ settings_obj.transcription_api_key }}" />
+    </label>
     <button class="radix-button md:col-span-1" type="submit">{% tr "Сохранить общие настройки" %}</button>
   </form>
 

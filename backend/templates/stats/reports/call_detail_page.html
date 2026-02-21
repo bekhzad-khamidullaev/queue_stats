@@ -1,0 +1,95 @@
+{% extends "stats/base.html" %}
+{% block title %}Call {{ callid }}{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4 space-y-2">
+  <div class="flex items-center justify-between gap-3">
+    <h1 class="text-xl font-semibold">{% tr "Детали звонка" %}: {{ callid }}</h1>
+    <a href="javascript:history.back()" class="radix-button-secondary">{% tr "Назад" %}</a>
+  </div>
+  <p class="text-sm text-slate-300">{% tr "Статус" %}: {{ outcome }}</p>
+  {% if caller %}<p class="text-sm text-slate-300">{% tr "Caller" %}: {{ caller }}</p>{% endif %}
+  {% if not has_data %}<p class="text-sm text-slate-400">{% tr "Данные по звонку пока не найдены в cdr/queuelog." %}</p>{% endif %}
+  {% if notice %}<p class="text-sm text-green-300">{{ notice }}</p>{% endif %}
+  {% if error %}<p class="text-sm text-red-300">{{ error }}</p>{% endif %}
+</section>
+
+{% if cdr %}
+<section class="radix-card p-4 mb-4">
+  <h2 class="text-lg font-semibold mb-3">CDR</h2>
+  <div class="overflow-auto">
+    <table class="radix-table">
+      <thead><tr><th>UniqueID</th><th>Date</th><th>SRC</th><th>DST</th><th>Operator</th><th>Duration</th><th>Billsec</th><th>Disposition</th><th>{% tr "Прослушивание" %}</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>{{ cdr.uniqueid }}</td><td>{{ cdr.calldate }}</td><td>{{ cdr.src }}</td><td>{{ cdr.dst }}</td><td>{{ cdr.operator_display }}</td><td>{{ cdr.duration }}</td><td>{{ cdr.billsec }}</td><td>{{ cdr.disposition }}</td>
+          <td>
+            {% if cdr.has_recording %}
+            <audio controls preload="none" controlslist="nodownload noplaybackrate" class="max-w-44">
+              <source src="{% url 'recording-stream' cdr.uniqueid %}" />
+            </audio>
+            {% else %}
+            <span class="text-slate-500">{% tr "Нет" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="radix-card p-4 mb-4">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+    <h2 class="text-lg font-semibold">{% tr "Диалог (транскрипт)" %}</h2>
+    {% if transcription_configured and cdr and cdr.has_recording %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="transcribe" />
+      <button class="radix-button" type="submit">{% tr "Распознать аудио" %}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if not transcription_configured %}
+    <p class="text-sm text-slate-400">{% tr "Сервис транскрибации не настроен (проверьте URL и API ключ в Settings)." %}</p>
+  {% elif not cdr or not cdr.has_recording %}
+    <p class="text-sm text-slate-400">{% tr "Для этого звонка нет аудиозаписи." %}</p>
+  {% elif transcription and transcription.status == "processing" %}
+    <p class="text-sm text-slate-300">{% tr "Идет распознавание..." %}</p>
+  {% elif transcription and transcription.status == "failed" %}
+    <p class="text-sm text-red-300">{{ transcription.error_message }}</p>
+  {% elif transcription_text %}
+    <div class="dialog-chat">
+      {% for chunk in transcription_chunks %}
+      <div class="dialog-msg-row {% if forloop.counter0|divisibleby:2 %}dialog-msg-row-in{% else %}dialog-msg-row-out{% endif %}">
+        <div class="dialog-msg {% if forloop.counter0|divisibleby:2 %}dialog-msg-in{% else %}dialog-msg-out{% endif %}">
+          <p class="dialog-msg-text">{{ chunk }}</p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-slate-400">{% tr "Транскрипт пока не создан." %}</p>
+  {% endif %}
+</section>
+
+<section class="radix-card p-4">
+  <h2 class="text-lg font-semibold mb-3">{% tr "События очереди (queuelog)" %}</h2>
+  {% if events %}
+  <div class="overflow-auto max-h-[40rem]">
+    <table class="radix-table">
+      <thead><tr><th>Time</th><th>Event</th><th>Queue</th><th>Agent</th><th>Data1</th><th>Data2</th><th>Data3</th><th>Data4</th><th>Data5</th></tr></thead>
+      <tbody>
+      {% for row in events %}
+        <tr>
+          <td>{{ row.time }}</td><td>{{ row.event }}</td><td>{{ row.queue_display }}</td><td>{{ row.agent_display }}</td><td>{{ row.data1 }}</td><td>{{ row.data2 }}</td><td>{{ row.data3 }}</td><td>{{ row.data4 }}</td><td>{{ row.data5 }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-slate-400">{% tr "События по этому звонку не найдены." %}</p>
+  {% endif %}
+</section>
+{% endblock %}

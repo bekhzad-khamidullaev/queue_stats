@@ -6,8 +6,8 @@
       <thead><tr><th>UniqueID</th><th>Date</th><th>Operator</th><th>SRC</th><th>DST</th><th>Duration</th><th>Billsec</th><th>Disposition</th><th>{% tr "Прослушивание" %}</th></tr></thead>
       <tbody>
       {% for row in rows %}
-        <tr>
-          <td>{{ row.uniqueid }}</td><td>{{ row.calldate }}</td><td>{{ row.operator_display }}</td><td>{{ row.src }}</td><td>{{ row.dst_display }}</td><td>{{ row.duration }}</td><td>{{ row.billsec }}</td><td>{{ row.disposition }}</td>
+        <tr class="call-row-hover">
+          <td><a class="call-link" href="{% url 'call-detail-page' row.uniqueid %}">{{ row.uniqueid }}</a></td><td>{{ row.calldate }}</td><td>{{ row.operator_display }}</td><td>{{ row.src }}</td><td>{{ row.dst_display }}</td><td>{{ row.duration }}</td><td>{{ row.billsec }}</td><td>{{ row.disposition }}</td>
           <td>
             {% if row.has_recording %}
             <audio controls preload="none" controlslist="nodownload noplaybackrate" class="max-w-44">
