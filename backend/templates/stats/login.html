@@ -1,0 +1,25 @@
+{% extends "stats/base.html" %}
+{% block title %}Вход | Queue Stats{% endblock %}
+{% block body %}
+<main class="min-h-screen flex items-center justify-center px-4">
+  <section class="radix-card w-full max-w-md p-8">
+    <h1 class="text-2xl font-semibold tracking-tight text-slate-100">Queue Stats</h1>
+    <p class="text-sm text-slate-400 mt-2">Единый Django-монолит (HTMX + WebSocket + AMI)</p>
+    {% if error %}
+      <p class="mt-4 rounded-md border border-red-900 bg-red-950/50 text-red-200 px-3 py-2 text-sm">{{ error }}</p>
+    {% endif %}
+    <form method="post" class="mt-6 space-y-4">
+      {% csrf_token %}
+      <label class="block">
+        <span class="text-sm text-slate-300">Логин</span>
+        <input name="username" type="text" required class="radix-input mt-1" />
+      </label>
+      <label class="block">
+        <span class="text-sm text-slate-300">Пароль</span>
+        <input name="password" type="password" required class="radix-input mt-1" />
+      </label>
+      <button type="submit" class="radix-button w-full">Войти</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

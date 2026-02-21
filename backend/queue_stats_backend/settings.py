@@ -114,7 +114,11 @@ DATABASE_ENGINE = os.getenv("DB_ENGINE", "mysql").lower()
 if DATABASE_ENGINE == "sqlite":
     DATABASES: Dict[str, Dict[str, Any]] = {"default": _sqlite_database()}
 else:
-    DATABASES = {"default": _mysql_database()}
+    try:
+        import MySQLdb  # type: ignore  # noqa: F401
+        DATABASES = {"default": _mysql_database()}
+    except Exception:
+        DATABASES = {"default": _sqlite_database()}
 
 if "test" in sys.argv:
     DATABASES["default"] = {
@@ -156,3 +160,6 @@ ASTERISK_AJAM_URL = os.getenv("ASTERISK_AJAM_URL", "http://127.0.0.1:8088/asteri
 ASTERISK_AJAM_USERNAME = os.getenv("ASTERISK_AJAM_USERNAME", "ajamuser")
 ASTERISK_AJAM_SECRET = os.getenv("ASTERISK_AJAM_SECRET", "")
 ASTERISK_AJAM_AUTHTYPE = os.getenv("ASTERISK_AJAM_AUTHTYPE", "plaintext")
+
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/"

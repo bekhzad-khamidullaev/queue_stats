@@ -6,9 +6,9 @@ from typing import Any, Dict, List
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.db import connections
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
-from django.urls import reverse
 from openpyxl import Workbook
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -18,8 +18,7 @@ from reportlab.pdfgen import canvas
 from accounts.models import UserRoles
 from settings.models import GeneralSettings
 from .ami_manager import AMIManager
-from .views import _parse_datetime, _normalize_list, _fetch_queuelog_rows
-from django.db import connections
+from .views import _fetch_queuelog_rows, _normalize_list, _parse_datetime
 
 
 def _user_allowed(request: HttpRequest) -> bool:
@@ -75,6 +74,36 @@ def _answered_dataset(request: HttpRequest) -> Dict[str, Any]:
     }
 
 
+def _unanswered_dataset(request: HttpRequest) -> Dict[str, Any]:
+    start, end = _interval_from_request(request)
+    queues = _normalize_list(request.GET.get("queues"))
+    rows = _fetch_queuelog_rows(start, end, queues, None, ["ABANDON", "EXITWITHTIMEOUT"])
+
+    flat_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        flat_rows.append(
+            {
+                "time": row.get("time"),
+                "queue": row.get("queuename"),
+                "event": row.get("event"),
+                "start_pos": int(row.get("data2") or 0),
+                "end_pos": int(row.get("data1") or 0),
+                "wait_sec": int(row.get("data3") or 0),
+            }
+        )
+
+    total = len(flat_rows)
+    avg_wait = round(sum(r["wait_sec"] for r in flat_rows) / total, 2) if total else 0
+    return {
+        "start": start,
+        "end": end,
+        "queues": queues,
+        "rows": flat_rows[:500],
+        "total": total,
+        "avg_wait": avg_wait,
+    }
+
+
 def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
     start, end = _interval_from_request(request)
     sql = """
@@ -90,6 +119,57 @@ def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
         columns = [col[0] for col in cursor.description]
     data = [dict(zip(columns, row)) for row in rows]
     return {"start": start, "end": end, "rows": data[:500], "total": len(data)}
+
+
+def _summary_dataset(request: HttpRequest) -> Dict[str, Any]:
+    start, end = _interval_from_request(request)
+    queues = _normalize_list(request.GET.get("queues"))
+    rows = _fetch_queuelog_rows(
+        start,
+        end,
+        queues,
+        None,
+        ["COMPLETECALLER", "COMPLETEAGENT", "ABANDON", "EXITWITHTIMEOUT"],
+    )
+
+    answered = 0
+    abandoned = 0
+    timeout = 0
+    wait_total = 0
+    talk_total = 0
+    by_queue: Dict[str, Dict[str, int]] = {}
+
+    for row in rows:
+        queue = str(row.get("queuename") or "UNKNOWN")
+        by_queue.setdefault(queue, {"answered": 0, "unanswered": 0, "total": 0})
+        event = str(row.get("event") or "")
+        if event in {"COMPLETECALLER", "COMPLETEAGENT"}:
+            answered += 1
+            by_queue[queue]["answered"] += 1
+            wait_total += int(row.get("data1") or 0)
+            talk_total += int(row.get("data2") or 0)
+        elif event == "ABANDON":
+            abandoned += 1
+            by_queue[queue]["unanswered"] += 1
+        elif event == "EXITWITHTIMEOUT":
+            timeout += 1
+            by_queue[queue]["unanswered"] += 1
+        by_queue[queue]["total"] += 1
+
+    total = answered + abandoned + timeout
+    return {
+        "start": start,
+        "end": end,
+        "queues": queues,
+        "total": total,
+        "answered": answered,
+        "abandoned": abandoned,
+        "timeout": timeout,
+        "service_level": round(answered * 100 / total, 2) if total else 0,
+        "avg_wait": round(wait_total / answered, 2) if answered else 0,
+        "avg_talk": round(talk_total / answered, 2) if answered else 0,
+        "per_queue": [{"queue": k, **v} for k, v in sorted(by_queue.items(), key=lambda item: item[0])],
+    }
 
 
 def _build_ami_snapshot() -> Dict[str, Any]:
@@ -174,7 +254,7 @@ def dashboard(request: HttpRequest) -> HttpResponse:
     if not _user_allowed(request):
         return HttpResponse("forbidden", status=403)
 
-    queues = [q["queuename"] for q in list()]
+    queues: List[str] = []
     with connections["default"].cursor() as cursor:
         try:
             cursor.execute("SELECT queuename FROM queues_new ORDER BY queuename")
@@ -193,10 +273,24 @@ def dashboard(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+def summary_partial(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+    return render(request, "stats/partials/summary_report.html", _summary_dataset(request))
+
+
+@login_required
 def answered_partial(request: HttpRequest) -> HttpResponse:
     if not _user_allowed(request):
         return HttpResponse("forbidden", status=403)
     return render(request, "stats/partials/answered_report.html", _answered_dataset(request))
+
+
+@login_required
+def unanswered_partial(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+    return render(request, "stats/partials/unanswered_report.html", _unanswered_dataset(request))
 
 
 @login_required
@@ -228,6 +322,31 @@ def export_answered_excel(request: HttpRequest) -> HttpResponse:
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     response["Content-Disposition"] = 'attachment; filename="answered_report.xlsx"'
+    return response
+
+
+@login_required
+def export_unanswered_excel(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+
+    data = _unanswered_dataset(request)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Unanswered"
+    sheet.append(["time", "queue", "event", "start_pos", "end_pos", "wait_sec"])
+    for row in data["rows"]:
+        sheet.append([row["time"], row["queue"], row["event"], row["start_pos"], row["end_pos"], row["wait_sec"]])
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="unanswered_report.xlsx"'
     return response
 
 
@@ -317,6 +436,22 @@ def export_answered_pdf(request: HttpRequest) -> HttpResponse:
     )
     response = HttpResponse(pdf_data, content_type="application/pdf")
     response["Content-Disposition"] = 'attachment; filename="answered_report.pdf"'
+    return response
+
+
+@login_required
+def export_unanswered_pdf(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+
+    data = _unanswered_dataset(request)
+    pdf_data = _draw_table_pdf(
+        "Unanswered Report",
+        ["time", "queue", "event", "start_pos", "end_pos", "wait_sec"],
+        [[r["time"], r["queue"], r["event"], r["start_pos"], r["end_pos"], r["wait_sec"]] for r in data["rows"]],
+    )
+    response = HttpResponse(pdf_data, content_type="application/pdf")
+    response["Content-Disposition"] = 'attachment; filename="unanswered_report.pdf"'
     return response
 
 

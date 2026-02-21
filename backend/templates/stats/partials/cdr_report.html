@@ -1,0 +1,18 @@
+<div class="space-y-2">
+  <p class="text-sm text-slate-300">Период: {{ start }} - {{ end }}</p>
+  <p class="text-sm text-slate-300">Всего CDR: {{ total }}</p>
+  <div class="overflow-auto max-h-96">
+    <table class="radix-table">
+      <thead><tr><th>UniqueID</th><th>Date</th><th>SRC</th><th>DST</th><th>Duration</th><th>Billsec</th><th>Disposition</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.uniqueid }}</td><td>{{ row.calldate }}</td><td>{{ row.src }}</td><td>{{ row.dst }}</td><td>{{ row.duration }}</td><td>{{ row.billsec }}</td><td>{{ row.disposition }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7">Нет данных</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

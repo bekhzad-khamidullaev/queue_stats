@@ -1,0 +1,18 @@
+<div class="space-y-2">
+  <p class="text-sm text-slate-300">Период: {{ start }} - {{ end }}</p>
+  <p class="text-sm text-slate-300">Всего звонков: {{ total }} | Avg Hold: {{ avg_hold }} | Avg Talk: {{ avg_talk }}</p>
+  <div class="overflow-auto max-h-96">
+    <table class="radix-table">
+      <thead><tr><th>Time</th><th>Queue</th><th>Agent</th><th>Hold</th><th>Talk</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.time }}</td><td>{{ row.queue }}</td><td>{{ row.agent }}</td><td>{{ row.hold }}</td><td>{{ row.talk }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">Нет данных</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

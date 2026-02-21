@@ -1,0 +1,82 @@
+:root {
+  --slate-950: #020617;
+  --slate-900: #0f172a;
+  --slate-850: #111b31;
+  --slate-800: #1e293b;
+  --slate-700: #334155;
+  --slate-300: #cbd5e1;
+  --slate-100: #f1f5f9;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+}
+
+.radix-body {
+  background: radial-gradient(circle at 20% 0%, #13213f 0%, var(--slate-950) 45%);
+  color: var(--slate-100);
+  min-height: 100vh;
+}
+
+.radix-card {
+  border: 1px solid var(--slate-800);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.55), rgba(15, 23, 42, 0.7));
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+}
+
+.radix-input {
+  width: 100%;
+  border: 1px solid var(--slate-700);
+  background: var(--slate-900);
+  border-radius: 10px;
+  color: var(--slate-100);
+  padding: 0.6rem 0.75rem;
+  outline: none;
+}
+
+.radix-input:focus {
+  border-color: var(--blue-500);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.radix-button,
+.radix-button-secondary {
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radix-button {
+  background: linear-gradient(180deg, var(--blue-500), var(--blue-600));
+  color: white;
+}
+
+.radix-button-secondary {
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--slate-100);
+  border-color: var(--slate-700);
+}
+
+.radix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.radix-table th,
+.radix-table td {
+  border-bottom: 1px solid var(--slate-800);
+  text-align: left;
+  padding: 0.5rem;
+  white-space: nowrap;
+}
+
+.radix-table th {
+  color: var(--slate-300);
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.8);
+}

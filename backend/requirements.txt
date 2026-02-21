@@ -1,6 +1,8 @@
 Django==5.2.7
 djangorestframework==3.16.1
-django-cors-headers==4.9.0
 channels==4.3.1
 channels-redis==4.2.0
 requests==2.32.5
+mysqlclient==2.2.7
+openpyxl==3.1.5
+reportlab==4.4.4

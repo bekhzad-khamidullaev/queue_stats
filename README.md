@@ -1,34 +1,26 @@
-# Queue Stats
+# Queue Stats (Django Monolith)
 
-Queue Stats is a modernized call-center analytics dashboard:
-- `backend/` - Django API and WebSocket services
-- `frontend/` - React + Vite single-page application
+Единый Django-монолит без отдельного frontend-сервиса:
+- Django Templates + HTMX
+- WebSocket (Django Channels) для real-time обновлений
+- Источник real-time данных: Asterisk AMI
+- Источник отчётов и CDR: MySQL (одна `default` БД, без второго DB alias)
+- Экспорт отчётов и CDR: Excel (`.xlsx`) и PDF
 
-Legacy PHP UI and related static assets were removed from this repository.
-
-## Local Development
-
-### Backend
+## Запуск локально
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# настройте DB_* и AMI_* переменные окружения
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```
 
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend default URL: `http://localhost:5173`  
-Backend default URL: `http://localhost:8000`
+Открыть UI: [http://localhost:8000/login/](http://localhost:8000/login/)
 
 ## Docker
 
@@ -36,13 +28,12 @@ Backend default URL: `http://localhost:8000`
 docker compose up --build
 ```
 
-## Tests
+## Экспорт
 
-```bash
-# backend
-cd backend && python3 manage.py test
+На странице дашборда доступны кнопки:
+- `Answered XLSX/PDF`
+- `CDR XLSX/PDF`
 
-# frontend
-cd frontend && npm run test -- --run
-```
+## Realtime
 
+Дашборд подключается к `/ws/htmx-realtime/` и получает HTML OOB-фрагменты для живого обновления блоков очередей и активных звонков.

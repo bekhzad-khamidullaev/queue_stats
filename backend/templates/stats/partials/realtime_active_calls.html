@@ -1,0 +1,21 @@
+<h2 class="text-lg font-semibold text-slate-100 mb-3">Активные звонки (AMI)</h2>
+{% if active_calls %}
+  <div class="overflow-auto max-h-80">
+    <table class="radix-table">
+      <thead>
+        <tr>
+          <th>Channel</th><th>Caller</th><th>Connected</th><th>Duration</th><th>Application</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in active_calls %}
+        <tr>
+          <td>{{ row.channel }}</td><td>{{ row.caller }}</td><td>{{ row.connected }}</td><td>{{ row.duration }}</td><td>{{ row.application }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-sm text-slate-400">Активных каналов нет.</p>
+{% endif %}

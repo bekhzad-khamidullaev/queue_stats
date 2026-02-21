@@ -1,0 +1,18 @@
+<div class="space-y-2">
+  <p class="text-sm text-slate-300">Период: {{ start }} - {{ end }}</p>
+  <p class="text-sm text-slate-300">Всего: {{ total }} | Avg Wait: {{ avg_wait }}s</p>
+  <div class="overflow-auto max-h-96">
+    <table class="radix-table">
+      <thead><tr><th>Time</th><th>Queue</th><th>Event</th><th>Start Pos</th><th>End Pos</th><th>Wait</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.time }}</td><td>{{ row.queue }}</td><td>{{ row.event }}</td><td>{{ row.start_pos }}</td><td>{{ row.end_pos }}</td><td>{{ row.wait_sec }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">Нет данных</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

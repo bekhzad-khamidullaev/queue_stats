@@ -7,24 +7,13 @@ services:
     environment:
       DJANGO_DEBUG: "true"
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
-      DB_ENGINE: "sqlite"
-      DJANGO_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      DB_ENGINE: "mysql"
+      DB_HOST: "host.docker.internal"
+      DB_PORT: "3306"
+      DB_NAME: "asteriskcdrdb"
+      DB_USER: "root"
+      DB_PASSWORD: ""
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: queue-stats-frontend
-    environment:
-      VITE_API_BASE_URL: "http://localhost:8000"
-    ports:
-      - "5173:5173"
-    depends_on:
-      - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules

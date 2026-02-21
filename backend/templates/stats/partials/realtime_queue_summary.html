@@ -1,0 +1,23 @@
+<h2 class="text-lg font-semibold text-slate-100 mb-3">Очереди (AMI / Realtime)</h2>
+{% if ami_error %}
+  <p class="text-sm text-red-300">{{ ami_error }}</p>
+{% elif queue_summary %}
+  <div class="overflow-auto">
+    <table class="radix-table">
+      <thead>
+        <tr>
+          <th>Queue</th><th>LoggedIn</th><th>Available</th><th>Callers</th><th>Hold</th><th>Longest</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in queue_summary %}
+        <tr>
+          <td>{{ row.queue }}</td><td>{{ row.logged_in }}</td><td>{{ row.available }}</td><td>{{ row.callers }}</td><td>{{ row.hold_time }}</td><td>{{ row.longest_hold }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-sm text-slate-400">Нет данных по очередям.</p>
+{% endif %}
