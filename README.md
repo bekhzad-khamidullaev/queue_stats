@@ -1,45 +1,57 @@
-# Queue Stats (Django Monolith)
+# Deploy README
 
-Единый Django-монолит без отдельного frontend-сервиса:
-- Django Templates + HTMX
-- WebSocket (Django Channels) для real-time обновлений
-- Источник real-time данных: Asterisk AMI
-- Источник отчётов и CDR: MySQL (одна `default` БД, без второго DB alias)
-- Экспорт отчётов и CDR: Excel (`.xlsx`) и PDF
+## What it does
+`deploy/deploy.sh` is a single deployment entrypoint that:
+1. Syncs the current workspace to the remote server via `rsync`.
+2. Rebuilds and restarts Docker Compose service(s).
+3. Prints container status, HTTP health-check, and recent logs.
 
-## Запуск локально
+## Default target
+- SSH host: `tshttaster`
+- Remote project dir: `/opt/queue_stats`
+- Compose service: `backend`
+- Health-check URL: `http://127.0.0.1:8000/login/`
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## Prerequisites
+- Local machine has: `ssh`, `rsync`, `docker` client.
+- Remote server has: Docker + Docker Compose plugin.
+- SSH access to target host (for example via `~/.ssh/config` alias `tshttaster`).
 
-# настройте DB_* и AMI_* переменные окружения
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
-
-Открыть UI: [http://localhost:8000/login/](http://localhost:8000/login/)
-
-## Docker
+## Usage
+From repo root:
 
 ```bash
-docker compose up --build
+chmod +x deploy/deploy.sh
+./deploy/deploy.sh
 ```
 
-## Экспорт
+## Options
 
-На странице дашборда доступны кнопки:
-- `Answered XLSX/PDF`
-- `CDR XLSX/PDF`
+```bash
+./deploy/deploy.sh \
+  --host tshttaster \
+  --remote-dir /opt/queue_stats \
+  --service backend \
+  --port 8000
+```
 
-## Realtime
+- `--skip-sync`: skip `rsync` step
+- `--skip-build`: skip `docker compose up -d --build`
 
-Дашборд подключается к `/ws/htmx-realtime/` и получает HTML OOB-фрагменты для живого обновления блоков очередей и активных звонков.
+## Environment overrides
+You can set these instead of flags:
+- `DEPLOY_HOST`
+- `DEPLOY_REMOTE_DIR`
+- `DEPLOY_SERVICE`
+- `DEPLOY_PORT`
 
-## Deploy
+Example:
 
-Production deploy script and guide are in `deploy/`:
-- `deploy/deploy.sh`
-- `deploy/README.md`
+```bash
+DEPLOY_HOST=tshttaster DEPLOY_REMOTE_DIR=/opt/queue_stats ./deploy/deploy.sh
+```
+
+## Notes
+- `rsync --delete` is used intentionally to keep the remote tree identical to the local one.
+- `.git`, `.venv`, and `node_modules` are excluded from sync.
+- The script is safe to run repeatedly (idempotent for normal deploy flow).
