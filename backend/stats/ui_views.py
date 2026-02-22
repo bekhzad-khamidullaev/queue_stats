@@ -23,8 +23,12 @@ from .helpers import (
     _get_general_settings,
     _user_allowed,
     _admin_allowed,
+    _display_queue,
     _display_agent,
+    _queue_map,
     _agent_map,
+    _get_available_queues,
+    _get_available_agents,
     _transcribe_call,
     _resolve_recording_local_path,
     _recording_file_by_uniqueid,
@@ -438,9 +442,27 @@ def settings_page(request: HttpRequest) -> HttpResponse:
         agent_qs = agent_qs.filter(agent_system_name__icontains=query) | agent_qs.filter(agent_display_name__icontains=query)
         payout_qs = payout_qs.filter(agent_system_name__icontains=query)
 
+    queues = _get_available_queues()
+    agents = _get_available_agents()
+    qmap = _queue_map()
+    queue_options = [{"value": q, "label": _display_queue(q, qmap)} for q in queues]
+
     context = _base_context(request)
     payout_rows = []
     amap = _agent_map()
+    agent_options = []
+    for item in agents:
+        agent_system = str(item.get("agent") or "")
+        agent_name = str(item.get("name") or "").strip()
+        agent_display = _display_agent(agent_system, amap)
+        if agent_display != agent_system:
+            label = f"{agent_display} ({agent_system})"
+        elif agent_name and agent_name != agent_system:
+            label = f"{agent_system} ({agent_name})"
+        else:
+            label = agent_system
+        agent_options.append({"value": agent_system, "label": label})
+
     for row in payout_qs:
         agent_system_name = str(row.agent_system_name or "")
         payout_rows.append(
@@ -457,6 +479,9 @@ def settings_page(request: HttpRequest) -> HttpResponse:
             "settings_obj": settings_obj,
             "language_choices": [("uz", "uz"), ("ru", "ru"), ("en", "en")],
             "currency_choices": ["UZS", "USD", "RUB", "EUR"],
+            "selected_query": query,
+            "queue_options": queue_options,
+            "agent_options": agent_options,
             "queue_mappings": queue_qs,
             "agent_mappings": agent_qs,
             "payout_rates": payout_rows,
