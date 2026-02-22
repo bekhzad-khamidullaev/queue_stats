@@ -160,6 +160,22 @@ Custom target example:
 Full deploy documentation:
 - `deploy/README.md`
 
+## TUI Server Install (Asterisk PBX Integration)
+
+For first-time server installation with interactive setup (DB + AMI + AJAM + recordings path), run:
+
+```bash
+sudo ./deploy/install_tui.sh
+```
+
+What it does:
+- asks all required integration values in TUI (`whiptail`/`dialog`, with CLI fallback)
+- installs Docker/Compose dependencies on Debian/Ubuntu
+- syncs project to target directory (default `/opt/queue_stats`)
+- generates `.env` for `docker compose`
+- starts backend, runs migrations, creates/updates admin user
+- writes AMI/DB values into `GeneralSettings`
+
 ## Troubleshooting
 
 ### WebSocket shows 404

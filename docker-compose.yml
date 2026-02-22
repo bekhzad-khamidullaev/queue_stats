@@ -5,16 +5,22 @@ services:
       dockerfile: Dockerfile
     container_name: queue-stats-backend
     environment:
-      DJANGO_DEBUG: "true"
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,10.10.134.62,192.168.88.171"
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,10.10.134.62,192.168.88.171}"
+      DJANGO_TIME_ZONE: "${DJANGO_TIME_ZONE:-UTC}"
       DB_ENGINE: "mysql"
       DB_HOST: "${DB_HOST:-10.10.134.62}"
-      DB_PORT: "3306"
+      DB_PORT: "${DB_PORT:-3306}"
       DB_NAME: "${DB_NAME:-asteriskcdrdb}"
       DB_USER: "${DB_USER:-queue_stats}"
       DB_PASSWORD: "${DB_PASSWORD:-Qstats_2026!}"
+      ASTERISK_MONITOR_PATH: "${ASTERISK_MONITOR_PATH:-/var/spool/asterisk/monitor/}"
+      ASTERISK_AJAM_URL: "${ASTERISK_AJAM_URL:-http://127.0.0.1:8088/asterisk/rawman}"
+      ASTERISK_AJAM_USERNAME: "${ASTERISK_AJAM_USERNAME:-ajamuser}"
+      ASTERISK_AJAM_SECRET: "${ASTERISK_AJAM_SECRET:-}"
+      ASTERISK_AJAM_AUTHTYPE: "${ASTERISK_AJAM_AUTHTYPE:-plaintext}"
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
-      - /var/spool/asterisk/monitor:/var/spool/asterisk/monitor:ro
+      - "${ASTERISK_MONITOR_HOST_PATH:-/var/spool/asterisk/monitor}:${ASTERISK_MONITOR_PATH:-/var/spool/asterisk/monitor/}:ro"
