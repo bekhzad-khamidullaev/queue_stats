@@ -16,7 +16,7 @@
       // Ignore storage read errors.
     }
 
-    return 'dark';
+    return 'light';
   }
 
   function setTheme(theme) {
