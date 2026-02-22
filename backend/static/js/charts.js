@@ -57,7 +57,8 @@
         mode: "index",
         intersect: false,
       },
-      parsing: false,
+      // We pass primitive arrays as dataset values; keep default parsing enabled.
+      parsing: true,
       normalized: true,
       plugins: {
         legend: {
