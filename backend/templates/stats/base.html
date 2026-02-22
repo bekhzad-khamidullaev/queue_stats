@@ -55,23 +55,25 @@
   </head>
   <body class="radix-body">
     {% if request.user.is_authenticated %}
+    {% with cur=request.resolver_match.url_name %}
     <header class="border-b border-slate-800 bg-slate-950/70 backdrop-blur">
       <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap gap-2 items-center justify-between">
         <nav class="flex flex-wrap gap-2">
-          <a href="{% url 'home' %}" class="radix-button-secondary">{% tr "Главная" %}</a>
-          <a href="{% url 'report-summary-page' %}" class="radix-button-secondary">Summary</a>
-          <a href="{% url 'report-answered-page' %}" class="radix-button-secondary">Answered</a>
-          <a href="{% url 'report-unanswered-page' %}" class="radix-button-secondary">Unanswered</a>
-          <a href="{% url 'report-cdr-page' %}" class="radix-button-secondary">CDR</a>
-          <a href="{% url 'dashboards-page' %}" class="radix-button-secondary">Dashboards</a>
-          <a href="{% url 'analytics-page' %}" class="radix-button-secondary">Analytics</a>
-          <a href="{% url 'payouts-page' %}" class="radix-button-secondary">{% tr "Выплаты" %}</a>
-          <a href="{% url 'realtime-page' %}" class="radix-button-secondary">Realtime</a>
-          {% if request.user.role == 'admin' %}<a href="{% url 'settings-page' %}" class="radix-button-secondary">Settings</a>{% endif %}
+          <a href="{% url 'home' %}" class="radix-button-secondary{% if cur == 'home' %} active{% endif %}">{% tr "Главная" %}</a>
+          <a href="{% url 'report-summary-page' %}" class="radix-button-secondary{% if cur == 'report-summary-page' %} active{% endif %}">{% tr "Сводка" %}</a>
+          <a href="{% url 'report-answered-page' %}" class="radix-button-secondary{% if cur == 'report-answered-page' %} active{% endif %}">{% tr "Отвеченные" %}</a>
+          <a href="{% url 'report-unanswered-page' %}" class="radix-button-secondary{% if cur == 'report-unanswered-page' %} active{% endif %}">{% tr "Пропущенные" %}</a>
+          <a href="{% url 'report-cdr-page' %}" class="radix-button-secondary{% if cur == 'report-cdr-page' %} active{% endif %}">CDR</a>
+          <a href="{% url 'dashboards-page' %}" class="radix-button-secondary{% if cur == 'dashboards-page' or cur == 'dashboard-traffic-page' or cur == 'dashboard-queues-page' or cur == 'dashboard-operators-page' %} active{% endif %}">{% tr "Дашборды" %}</a>
+          <a href="{% url 'analytics-page' %}" class="radix-button-secondary{% if cur == 'analytics-page' %} active{% endif %}">{% tr "Аналитика" %}</a>
+          <a href="{% url 'payouts-page' %}" class="radix-button-secondary{% if cur == 'payouts-page' %} active{% endif %}">{% tr "Выплаты" %}</a>
+          <a href="{% url 'realtime-page' %}" class="radix-button-secondary{% if cur == 'realtime-page' %} active{% endif %}">{% tr "Риалтайм" %}</a>
+          {% if request.user.role == 'admin' %}<a href="{% url 'settings-page' %}" class="radix-button-secondary{% if cur == 'settings-page' or cur == 'mappings-page' %} active{% endif %}">{% tr "Настройки" %}</a>{% endif %}
         </nav>
         <a href="{% url 'web-logout' %}" class="radix-button">{% tr "Выйти" %}</a>
       </div>
     </header>
+    {% endwith %}
     {% endif %}
 
     <main class="max-w-7xl mx-auto p-4">{% block body %}{% endblock %}</main>

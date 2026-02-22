@@ -108,6 +108,18 @@
   background: #ffffff;
 }
 
+.radix-button-secondary.active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: var(--blue-500);
+  color: #93c5fd;
+}
+
+[data-theme="light"] .radix-button-secondary.active {
+  background: rgba(37, 99, 235, 0.1);
+  border-color: var(--blue-500);
+  color: var(--blue-600);
+}
+
 .radix-table {
   width: 100%;
   border-collapse: collapse;

@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from django.db import connections
 
 from settings.models import AgentDisplayMapping, GeneralSettings
-from .ami_manager import AMIEvent, AMIManager
+from .ami_integration import AMIEvent, AMIManager
 
 logger = logging.getLogger(__name__)
 

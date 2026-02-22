@@ -1,10 +1,27 @@
-"""Comprehensive Asterisk Manager Interface (AMI) Client"""
+"""Asterisk Manager Interface (AMI) integration for UI views"""
 import socket
 import threading
 import time
 import logging
 from typing import Any, Callable, Dict, List, Optional
 from queue import Queue
+
+from django.http import HttpRequest
+from settings.models import GeneralSettings
+from .helpers import (
+    _normalize_list,
+    _queue_map,
+    _agent_map,
+    _get_param_list,
+    _filter_value,
+    _display_queue,
+    _display_agent,
+    _channel_row_rank,
+    _human_party,
+    _human_channel,
+    _extract_operator_ext,
+)
+from .i18n_map import tr as i18n_tr
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +99,13 @@ class AMIManager:
             try:
                 if self.connected:
                     self._send_action("Logoff")
-            except:
-                pass
+            except Exception as exc:
+                logger.debug("Logoff error during disconnect: %s", exc)
             finally:
                 try:
                     self.socket.close()
-                except:
-                    pass
+                except Exception as exc:
+                    logger.debug("Socket close error: %s", exc)
                 self.socket = None
                 self.connected = False
     
@@ -288,6 +305,12 @@ class AMIManager:
         response = self._send_action('Redirect', **params)
         return {'success': response and 'Success' in str(response), 'data': response}
     
+    def bridge(self, channel1: str, channel2: str, tone: bool = True) -> Dict:
+        """Bridge two channels"""
+        response = self._send_action('Bridge', Channel1=channel1, Channel2=channel2,
+                                    Tone='yes' if tone else 'no')
+        return {'success': response and 'Success' in str(response), 'data': response}
+
     def status(self, channel: Optional[str] = None) -> Dict:
         """Get channel status"""
         params = {}
@@ -452,31 +475,11 @@ class AMIManager:
         """Set channel variable"""
         response = self._send_action('Setvar', Channel=channel, Variable=variable, Value=value)
         return {'success': response and 'Success' in str(response), 'data': response}
-    
-    def bridge(self, channel1: str, channel2: str, tone: bool = True) -> Dict:
-        """Bridge two channels"""
-        response = self._send_action('Bridge', Channel1=channel1, Channel2=channel2,
-                                    Tone='yes' if tone else 'no')
-        return {'success': response and 'Success' in str(response), 'data': response}
-    
-    def park(self, channel: str, channel2: str, timeout: int = 45000,
-             parkinglot: Optional[str] = None) -> Dict:
-        """Park a channel"""
-        params = {'Channel': channel, 'Channel2': channel2, 'Timeout': timeout}
-        if parkinglot:
-            params['Parkinglot'] = parkinglot
-        response = self._send_action('Park', **params)
-        return {'success': response and 'Success' in str(response), 'data': response}
-    
-    def parked_calls(self) -> Dict:
-        """Get parked calls"""
-        response = self._send_action('ParkedCalls')
-        return {'success': True, 'calls': response or []}
-    
-    def monitor(self, channel: str, file: Optional[str] = None, 
-                format: str = 'wav', mix: bool = True) -> Dict:
+
+    def monitor(self, channel: str, file: Optional[str] = None,
+                audio_format: str = 'wav', mix: bool = True) -> Dict:
         """Start monitoring a channel"""
-        params = {'Channel': channel, 'Format': format, 'Mix': 'true' if mix else 'false'}
+        params = {'Channel': channel, 'Format': audio_format, 'Mix': 'true' if mix else 'false'}
         if file:
             params['File'] = file
         response = self._send_action('Monitor', **params)
@@ -490,7 +493,7 @@ class AMIManager:
     def mixmonitor_mute(self, channel: str, direction: str = 'both', state: bool = True) -> Dict:
         """Mute/unmute MixMonitor on a channel"""
         response = self._send_action('MixMonitorMute', Channel=channel, 
-                                    Direction=direction, State='1' if state else '0')
+                                direction=direction, State='1' if state else '0')
         return {'success': response and 'Success' in str(response), 'data': response}
     
     def absolute_timeout(self, channel: str, timeout: int) -> Dict:
@@ -512,3 +515,138 @@ class AMIManager:
         """Get mailbox message count"""
         response = self._send_action('MailboxCount', Mailbox=mailbox)
         return {'success': True, 'count': response or []}
+
+
+def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, str] | None = None) -> Dict[str, Any]:
+    def _snapshot_filter_value(key: str) -> str:
+        if request is not None:
+            return _filter_value(request, key)
+        if filters is not None:
+            return filters.get(key, "")
+        return ""
+
+    qmap = _queue_map()
+    amap = _agent_map()
+    if request is not None:
+        queues_filter = set(_get_param_list(request, "queues"))
+    else:
+        queues_filter = set(_normalize_list(_snapshot_filter_value("queues")))
+    channel_filter = (_snapshot_filter_value("channel") or "").strip().lower()
+    caller_filter = (_snapshot_filter_value("caller") or "").strip().lower()
+
+    settings = GeneralSettings.objects.first()
+    if not settings or not settings.ami_host:
+        return {
+            "queue_summary": [],
+            "active_calls": [],
+            "active_calls_count": 0,
+            "waiting_calls_count": 0,
+            "active_operators_count": 0,
+            "ami_error": i18n_tr("AMI не настроен"),
+        }
+
+    manager = AMIManager(
+        host=settings.ami_host,
+        port=settings.ami_port,
+        username=settings.ami_user,
+        secret=settings.ami_password,
+    )
+
+    if not manager.connect():
+        return {
+            "queue_summary": [],
+            "active_calls": [],
+            "active_calls_count": 0,
+            "waiting_calls_count": 0,
+            "active_operators_count": 0,
+            "ami_error": i18n_tr("Нет соединения с AMI"),
+        }
+
+    try:
+        summary_raw = manager.queue_summary().get("summary", [])
+        channels_raw = manager.core_show_channels().get("channels", [])
+    finally:
+        manager.disconnect()
+
+    queue_summary: List[Dict[str, Any]] = []
+    for row in summary_raw:
+        if str(row.get("Event", "")) != "QueueSummary":
+            continue
+        queue_system = str(row.get("Queue", ""))
+        if queues_filter and queue_system not in queues_filter:
+            continue
+        queue_summary.append(
+            {
+                "queue": queue_system,
+                "queue_display": _display_queue(queue_system, qmap),
+                "logged_in": row.get("LoggedIn", "0"),
+                "available": row.get("Available", "0"),
+                "callers": row.get("Callers", "0"),
+                "hold_time": row.get("HoldTime", "0"),
+                "longest_hold": row.get("LongestHoldTime", "0"),
+            }
+        )
+
+    deduped_channels: Dict[str, Dict[str, Any]] = {}
+    fallback_idx = 0
+    for row in channels_raw:
+        if str(row.get("Event", "")) != "CoreShowChannel":
+            continue
+        channel = str(row.get("Channel", ""))
+        if channel.startswith("Message/"):
+            continue
+        linkedid = str(row.get("Linkedid") or row.get("LinkedId") or "").strip()
+        bridge_id = str(row.get("BridgeId") or row.get("BridgeID") or row.get("BridgeUniqueid") or "").strip()
+        dedupe_key = linkedid or bridge_id
+        if not dedupe_key:
+            fallback_idx += 1
+            dedupe_key = f"row:{fallback_idx}:{channel}"
+
+        current = deduped_channels.get(dedupe_key)
+        if current is None or _channel_row_rank(row) > _channel_row_rank(current):
+            deduped_channels[dedupe_key] = row
+
+    active_calls: List[Dict[str, Any]] = []
+    active_operator_ids = set()
+    for row in deduped_channels.values():
+        channel = str(row.get("Channel", ""))
+        caller = str(row.get("CallerIDNum", ""))
+        connected = str(row.get("ConnectedLineNum", ""))
+        callid = str(row.get("Linkedid") or row.get("LinkedId") or row.get("BridgeId") or row.get("BridgeID") or "").strip()
+        if channel_filter and channel_filter not in channel.lower():
+            continue
+        caller_human = _human_party(caller, amap)
+        connected_human = _human_party(connected, amap)
+        haystack = " ".join([caller, connected, caller_human, connected_human]).lower()
+        if caller_filter and caller_filter not in haystack:
+            continue
+        active_calls.append(
+            {
+                "callid": callid,
+                "channel": _human_channel(channel, amap),
+                "caller": caller_human,
+                "connected": connected_human,
+                "duration": row.get("Duration", ""),
+                "application": row.get("Application", ""),
+            }
+        )
+        for candidate in (channel, caller, connected):
+            ext = _extract_operator_ext(candidate)
+            if ext:
+                active_operator_ids.add(ext)
+
+    waiting_calls_total = 0
+    for row in queue_summary:
+        try:
+            waiting_calls_total += int(row.get("callers") or 0)
+        except (TypeError, ValueError):
+            continue
+
+    return {
+        "queue_summary": queue_summary,
+        "active_calls": active_calls,
+        "active_calls_count": len(active_calls),
+        "waiting_calls_count": waiting_calls_total,
+        "active_operators_count": len(active_operator_ids),
+        "ami_error": "",
+    }

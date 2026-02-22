@@ -8,7 +8,7 @@ from typing import Dict, Any
 from accounts.models import UserRoles
 from accounts.permissions import login_required_json, require_roles
 from settings.models import GeneralSettings
-from .ami_manager import AMIManager
+from .ami_integration import AMIEvent, AMIManager
 
 
 def _get_ami_manager() -> AMIManager:

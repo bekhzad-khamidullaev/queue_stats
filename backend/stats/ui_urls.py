@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import ui_views
+from . import exports
 
 urlpatterns = [
     path("", ui_views.home, name="home"),
@@ -25,18 +26,18 @@ urlpatterns = [
     path("recordings/<str:uniqueid>/stream/", ui_views.recording_stream, name="recording-stream"),
     path("ui/partials/realtime-oob/", ui_views.realtime_oob_partial, name="ui-realtime-oob"),
 
-    path("ui/exports/answered.xlsx", ui_views.export_answered_excel, name="ui-export-answered-xlsx"),
-    path("ui/exports/answered.pdf", ui_views.export_answered_pdf, name="ui-export-answered-pdf"),
-    path("ui/exports/unanswered.xlsx", ui_views.export_unanswered_excel, name="ui-export-unanswered-xlsx"),
-    path("ui/exports/unanswered.pdf", ui_views.export_unanswered_pdf, name="ui-export-unanswered-pdf"),
-    path("ui/exports/cdr.xlsx", ui_views.export_cdr_excel, name="ui-export-cdr-xlsx"),
-    path("ui/exports/cdr.pdf", ui_views.export_cdr_pdf, name="ui-export-cdr-pdf"),
-    path("ui/exports/dashboard-traffic.xlsx", ui_views.export_dashboard_traffic_excel, name="ui-export-dashboard-traffic-xlsx"),
-    path("ui/exports/dashboard-traffic.pdf", ui_views.export_dashboard_traffic_pdf, name="ui-export-dashboard-traffic-pdf"),
-    path("ui/exports/dashboard-queues.xlsx", ui_views.export_dashboard_queues_excel, name="ui-export-dashboard-queues-xlsx"),
-    path("ui/exports/dashboard-queues.pdf", ui_views.export_dashboard_queues_pdf, name="ui-export-dashboard-queues-pdf"),
-    path("ui/exports/dashboard-operators.xlsx", ui_views.export_dashboard_operators_excel, name="ui-export-dashboard-operators-xlsx"),
-    path("ui/exports/dashboard-operators.pdf", ui_views.export_dashboard_operators_pdf, name="ui-export-dashboard-operators-pdf"),
-    path("ui/exports/analytics.xlsx", ui_views.export_analytics_excel, name="ui-export-analytics-xlsx"),
-    path("ui/exports/analytics.pdf", ui_views.export_analytics_pdf, name="ui-export-analytics-pdf"),
+    path("ui/exports/answered.xlsx", exports.export_answered_excel, name="ui-export-answered-xlsx"),
+    path("ui/exports/answered.pdf", exports.export_answered_pdf, name="ui-export-answered-pdf"),
+    path("ui/exports/unanswered.xlsx", exports.export_unanswered_excel, name="ui-export-unanswered-xlsx"),
+    path("ui/exports/unanswered.pdf", exports.export_unanswered_pdf, name="ui-export-unanswered-pdf"),
+    path("ui/exports/cdr.xlsx", exports.export_cdr_excel, name="ui-export-cdr-xlsx"),
+    path("ui/exports/cdr.pdf", exports.export_cdr_pdf, name="ui-export-cdr-pdf"),
+    path("ui/exports/dashboard-traffic.xlsx", exports.export_dashboard_traffic_excel, name="ui-export-dashboard-traffic-xlsx"),
+    path("ui/exports/dashboard-traffic.pdf", exports.export_dashboard_traffic_pdf, name="ui-export-dashboard-traffic-pdf"),
+    path("ui/exports/dashboard-queues.xlsx", exports.export_dashboard_queues_excel, name="ui-export-dashboard-queues-xlsx"),
+    path("ui/exports/dashboard-queues.pdf", exports.export_dashboard_queues_pdf, name="ui-export-dashboard-queues-pdf"),
+    path("ui/exports/dashboard-operators.xlsx", exports.export_dashboard_operators_excel, name="ui-export-dashboard-operators-xlsx"),
+    path("ui/exports/dashboard-operators.pdf", exports.export_dashboard_operators_pdf, name="ui-export-dashboard-operators-pdf"),
+    path("ui/exports/analytics.xlsx", exports.export_analytics_excel, name="ui-export-analytics-xlsx"),
+    path("ui/exports/analytics.pdf", exports.export_analytics_pdf, name="ui-export-analytics-pdf"),
 ]

@@ -1,55 +1,29 @@
 from __future__ import annotations
 
 import json
+import socket
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List
-from django.http import FileResponse, Http404
-
-from settings.models import GeneralSettings
 
 import requests
 from django.db import connections
-from django.http import HttpRequest, JsonResponse
+from django.http import FileResponse, Http404, HttpRequest, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from accounts.models import UserRoles
 from accounts.permissions import login_required_json, require_roles
+from settings.models import GeneralSettings
 from .models import AgentsNew, QueueLog, QueuesNew
+from .utils import api_pagination_meta as _pagination_meta
+from .utils import api_pagination_params as _pagination_from_payload
+from .utils import to_int as _to_int
 
 JsonDict = Dict[str, Any]
 
 
-def _to_int(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
-    try:
-        parsed = int(str(value))
-    except (TypeError, ValueError):
-        parsed = default
-    if minimum is not None:
-        parsed = max(minimum, parsed)
-    if maximum is not None:
-        parsed = min(maximum, parsed)
-    return parsed
 
-
-def _pagination_from_payload(payload: JsonDict, default_page_size: int = 100, max_page_size: int = 1000) -> tuple[int, int, int]:
-    page = _to_int(payload.get("page"), default=1, minimum=1)
-    page_size = _to_int(payload.get("page_size"), default=default_page_size, minimum=1, maximum=max_page_size)
-    offset = (page - 1) * page_size
-    return page, page_size, offset
-
-
-def _pagination_meta(total: int, page: int, page_size: int) -> Dict[str, int | bool]:
-    total_pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
-    return {
-        "page": page,
-        "page_size": page_size,
-        "total": total,
-        "total_pages": total_pages,
-        "has_prev": page > 1,
-        "has_next": page < total_pages,
-    }
 
 
 def _parse_request_payload(request: HttpRequest) -> JsonDict:
@@ -74,14 +48,7 @@ def _parse_datetime(value: str | None, default: datetime | None = None) -> datet
     return default
 
 
-def _normalize_list(value: Any) -> List[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, Iterable):
-        return [str(item).strip() for item in value]
-    return []
+from .helpers import _normalize_list
 
 
 def _parse_bool(value: Any, default: bool = False) -> bool:
@@ -110,9 +77,7 @@ def _join_enterqueue_callerids(rows: List[Dict[str, Any]]) -> List[Dict[str, Any
 @require_GET
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT)
 def queues_list(request: HttpRequest) -> JsonResponse:
-    items = list(QueuesNew.objects.order_by("queuename").values("queuename"))
-    for item in items:
-        item['descr'] = item['queuename']
+    items = list(QueuesNew.objects.order_by("queuename").values("queuename", "descr"))
     return JsonResponse({"queues": items})
 
 
@@ -470,9 +435,7 @@ def summary_report(request: HttpRequest) -> JsonResponse:
         "avg_talk_time": round(total_talk_time / answered_calls, 2) if answered_calls else 0,
         "calls_per_queue": dict(calls_per_queue),
     }
-    payload = dict(summary)
-    payload["summary"] = summary
-    return JsonResponse(payload)
+    return JsonResponse({"summary": summary})
 
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
@@ -843,7 +806,9 @@ def sla_report(request: HttpRequest) -> JsonResponse:
     queues = _normalize_list(payload.get("queues") or payload.get("queue"))
     start = _parse_datetime(payload.get("start"))
     end = _parse_datetime(payload.get("end"))
-    threshold = int(payload.get("threshold", 20))
+    _cfg = GeneralSettings.objects.first()
+    default_threshold = int(_cfg.sla_target_wait_seconds) if _cfg else 20
+    threshold = int(payload.get("threshold", default_threshold))
 
     if not end:
         end = datetime.now().replace(hour=23, minute=59, second=59)
@@ -1134,6 +1099,17 @@ def areport_legacy(request: HttpRequest) -> JsonResponse:
         elif event == "REMOVEMEMBER" and str(row.get("callid") or "") == "MANAGER":
             bucket["remove_times"].append(dt)
 
+    _cfg = GeneralSettings.objects.first()
+    if _cfg:
+        from datetime import date, time as _time
+        _bds = _cfg.business_day_start or _time(9, 0)
+        _bde = _cfg.business_day_end or _time(18, 0)
+        _default_work_sec = int(
+            (datetime.combine(date.today(), _bde) - datetime.combine(date.today(), _bds)).total_seconds()
+        )
+    else:
+        _default_work_sec = 9 * 3600
+
     rows_out: List[Dict[str, Any]] = []
     for day in sorted(by_day_agent.keys()):
         for agent in sorted(by_day_agent[day].keys()):
@@ -1143,7 +1119,7 @@ def areport_legacy(request: HttpRequest) -> JsonResponse:
             if add_times and remove_times:
                 work_sec = max(0, int((remove_times[-1] - add_times[0]).total_seconds()))
             else:
-                work_sec = 9 * 60 * 60
+                work_sec = _default_work_sec
             free_sec = max(0, work_sec - bucket["talk_sec"] - bucket["pause_sec"])
             calls = bucket["calls"]
             rows_out.append(
@@ -1237,85 +1213,6 @@ def qreport_legacy(request: HttpRequest) -> JsonResponse:
     )
 
 
-import socket
-
-class AmiClient:
-    def __init__(self, host, port, username, secret):
-        self.host = host
-        self.port = port
-        self.username = username
-        self.secret = secret
-        self.socket = None
-
-    def __enter__(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((self.host, self.port))
-        # Read the initial "Asterisk Call Manager..." line
-        self.socket.recv(1024)
-
-        login_action = f"Action: Login\r\nUsername: {self.username}\r\nSecret: {self.secret}\r\n\r\n"
-        self.socket.sendall(login_action.encode())
-        login_response = self._read_response()
-        if "Success" not in login_response:
-            raise ConnectionRefusedError(f"AMI Login failed: {login_response}")
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.socket:
-            logoff_action = "Action: Logoff\r\n\r\n"
-            self.socket.sendall(logoff_action.encode())
-            self.socket.close()
-
-    def _read_response(self):
-        response = ""
-        while True:
-            data = self.socket.recv(1024).decode()
-            response += data
-            if "\r\n\r\n" in response:
-                break
-        return response
-
-    def send_action(self, action: str, **params: Any) -> Dict[str, Any]:
-        action_str = f"Action: {action}\r\n"
-        for key, value in params.items():
-            action_str += f"{key}: {value}\r\n"
-        action_str += "\r\n"
-        self.socket.sendall(action_str.encode())
-
-        response_data = ""
-        while True:
-            chunk = self.socket.recv(4096).decode()
-            response_data += chunk
-            if response_data.endswith("--END COMMAND--\r\n\r\n") or action in ["QueueStatus", "CoreShowChannels"] and response_data.endswith("\r\n\r\n"):
-                 # Some commands dont have a clear end marker, we depend on a timeout from the socket
-                 # For now we assume the double crlf is enough for our commands.
-                 break
-        return self._parse_response(response_data)
-
-    def _parse_response(self, payload: str) -> Dict[str, Any]:
-        result: Dict[str, Any] = {}
-        entries: List[Dict[str, str]] = []
-        current: Dict[str, str] = {}
-
-        for line in payload.splitlines():
-            line = line.strip()
-            if not line or line.startswith("--END COMMAND--"):
-                continue
-
-            if line.startswith("Event:") or line.startswith("Response:") or line.startswith("Channel:"):
-                if current:
-                    entries.append(current)
-                current = {}
-
-            if ":" in line:
-                key, value = line.split(":", 1)
-                current[key.strip()] = value.strip()
-
-        if current:
-            entries.append(current)
-        result["entries"] = entries
-        return result
-
 def _ami_response(action: str, **params: Any) -> Dict[str, Any]:
     general_settings = GeneralSettings.objects.first()
     if not general_settings or not general_settings.ami_host:
@@ -1372,8 +1269,8 @@ def queue_summary(request: HttpRequest) -> JsonResponse:
     return JsonResponse(data)
 
 
-from django.http import StreamingHttpResponse
-
+@require_GET
+@login_required_json
 def get_recording(request: HttpRequest, uniqueid: str) -> FileResponse:
     settings = GeneralSettings.objects.first()
     if not settings or not settings.download_url:

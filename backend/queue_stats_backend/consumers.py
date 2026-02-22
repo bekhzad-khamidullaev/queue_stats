@@ -8,8 +8,7 @@ from channels.layers import get_channel_layer
 from django.http import QueryDict
 from django.template.loader import render_to_string
 from settings.models import GeneralSettings
-from stats.ami_manager import AMIEvent, AMIManager
-from stats.ui_views import _build_ami_snapshot
+from stats.ami_integration import AMIEvent, AMIManager, _build_ami_snapshot
 
 logger = logging.getLogger(__name__)
 
