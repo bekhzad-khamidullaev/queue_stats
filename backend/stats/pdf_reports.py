@@ -39,6 +39,7 @@ def draw_table_pdf(title: str, headers: List[str], rows: List[List[Any]]) -> byt
 
 
 def _draw_bar_plot_on_canvas(pdf: canvas.Canvas, title: str, x: float, y: float, w: float, h: float, labels: List[str], values: List[float]) -> None:
+    values = [float(v) if v is not None else 0.0 for v in values]
     pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(x, y + h + 5 * mm, title)
     if not values:
@@ -70,6 +71,7 @@ def _draw_bar_plot_on_canvas(pdf: canvas.Canvas, title: str, x: float, y: float,
 
 
 def _draw_line_plot_on_canvas(pdf: canvas.Canvas, title: str, x: float, y: float, w: float, h: float, labels: List[str], values: List[float]) -> None:
+    values = [float(v) if v is not None else 0.0 for v in values]
     pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(x, y + h + 5 * mm, title)
     if not values:
