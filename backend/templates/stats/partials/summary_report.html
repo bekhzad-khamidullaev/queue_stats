@@ -1,7 +1,16 @@
 <div class="space-y-2">
-  <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
-  <p class="text-sm text-slate-300">Total: {{ total }} | Answered: {{ answered }} | Abandoned: {{ abandoned }} | Timeout: {{ timeout }}</p>
-  <p class="text-sm text-slate-300">SLA: {{ service_level }}% | Avg Wait: {{ avg_wait }}s | Avg Talk: {{ avg_talk }}s</p>
+  <div class="table-kpi-header">
+    <p class="table-period">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+    <div class="table-kpi-list">
+      <span class="table-kpi"><span class="table-kpi-label">Total</span><span class="table-kpi-value">{{ total }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Answered</span><span class="table-kpi-value">{{ answered }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Abandoned</span><span class="table-kpi-value">{{ abandoned }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Timeout</span><span class="table-kpi-value">{{ timeout }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">SLA</span><span class="table-kpi-value">{{ service_level }}%</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Avg Wait</span><span class="table-kpi-value">{{ avg_wait }}s</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Avg Talk</span><span class="table-kpi-value">{{ avg_talk }}s</span></span>
+    </div>
+  </div>
   <div class="overflow-auto max-h-80">
     <table class="radix-table">
       <thead><tr><th>Queue</th><th>Answered</th><th>Unanswered</th><th>Total</th></tr></thead>

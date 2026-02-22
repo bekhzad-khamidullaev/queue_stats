@@ -3,6 +3,7 @@ from __future__ import annotations
 import mimetypes
 import os
 import re
+import time
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
@@ -32,6 +33,20 @@ from .models import CallTranscription
 from .views import _fetch_queuelog_rows, _normalize_list, _parse_datetime
 
 _AGENT_EXT_RE = re.compile(r"\b([0-9]{3,6})\b")
+_FILTER_SESSION_KEY = "ui_saved_filters"
+_LIST_FILTER_KEYS = {"queues", "agents"}
+_SCALAR_FILTER_KEYS = {
+    "start",
+    "end",
+    "src",
+    "dst",
+    "disposition",
+    "channel",
+    "caller",
+    "q",
+    "page_size",
+}
+_PERSISTED_FILTER_KEYS = _LIST_FILTER_KEYS | _SCALAR_FILTER_KEYS
 
 
 def _user_allowed(request: HttpRequest) -> bool:
@@ -47,9 +62,71 @@ def _admin_allowed(request: HttpRequest) -> bool:
     return request.user.is_authenticated and request.user.role == UserRoles.ADMIN
 
 
+def _saved_filters(request: HttpRequest) -> Dict[str, Any]:
+    raw = request.session.get(_FILTER_SESSION_KEY, {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def _parse_param_list(raw_items: List[str], raw_single: str | None = None) -> List[str]:
+    parsed: List[str] = []
+    if raw_items:
+        for item in raw_items:
+            parsed.extend(_normalize_list(item))
+    else:
+        parsed.extend(_normalize_list(raw_single))
+
+    unique: List[str] = []
+    for item in parsed:
+        if item not in unique:
+            unique.append(item)
+    return unique
+
+
+def _persist_filters(request: HttpRequest) -> None:
+    if request.method != "GET":
+        return
+    if not request.GET:
+        return
+
+    current = dict(_saved_filters(request))
+    updated = False
+    for key in _PERSISTED_FILTER_KEYS:
+        if key not in request.GET:
+            continue
+        if key in _LIST_FILTER_KEYS:
+            value: Any = _parse_param_list(request.GET.getlist(key), request.GET.get(key))
+        else:
+            value = (request.GET.get(key) or "").strip()
+        if current.get(key) != value:
+            current[key] = value
+            updated = True
+    if updated:
+        request.session[_FILTER_SESSION_KEY] = current
+        request.session.modified = True
+
+
+def _filter_value(request: HttpRequest, key: str, default: str = "") -> str:
+    if key in request.GET:
+        return (request.GET.get(key) or "").strip()
+    saved = _saved_filters(request)
+    value = saved.get(key, default)
+    return str(value).strip() if value is not None else default
+
+
+def _filter_list(request: HttpRequest, key: str) -> List[str]:
+    if key in request.GET:
+        return _parse_param_list(request.GET.getlist(key), request.GET.get(key))
+    saved = _saved_filters(request)
+    saved_value = saved.get(key, [])
+    if isinstance(saved_value, list):
+        raw_items = [str(item) for item in saved_value]
+        return _parse_param_list(raw_items)
+    return _parse_param_list([], str(saved_value))
+
+
 def _interval_from_request(request: HttpRequest) -> tuple[datetime, datetime]:
-    start = _parse_datetime(request.GET.get("start"))
-    end = _parse_datetime(request.GET.get("end"))
+    start = _parse_datetime(_filter_value(request, "start"))
+    end = _parse_datetime(_filter_value(request, "end"))
     if not end:
         end = datetime.now().replace(hour=23, minute=59, second=59)
     if not start:
@@ -58,19 +135,7 @@ def _interval_from_request(request: HttpRequest) -> tuple[datetime, datetime]:
 
 
 def _get_param_list(request: HttpRequest, key: str) -> List[str]:
-    raw_items = request.GET.getlist(key)
-    parsed: List[str] = []
-    if raw_items:
-        for item in raw_items:
-            parsed.extend(_normalize_list(item))
-    else:
-        parsed.extend(_normalize_list(request.GET.get(key)))
-
-    unique: List[str] = []
-    for item in parsed:
-        if item not in unique:
-            unique.append(item)
-    return unique
+    return _filter_list(request, key)
 
 
 def _queue_map() -> Dict[str, str]:
@@ -347,25 +412,49 @@ def _caller_map_by_callids(callids: List[str]) -> Dict[str, str]:
 
 
 def _base_context(request: HttpRequest) -> Dict[str, Any]:
+    _persist_filters(request)
     now = datetime.now()
     selected_queues_list = _get_param_list(request, "queues")
     selected_agents_list = _get_param_list(request, "agents")
+    start_value = _filter_value(request, "start")
+    end_value = _filter_value(request, "end")
+    queues = _get_available_queues()
+    agents = _get_available_agents()
+    qmap = _queue_map()
+    amap = _agent_map()
+
+    queue_options = [{"value": q, "label": _display_queue(q, qmap)} for q in queues]
+    agent_options: List[Dict[str, str]] = []
+    for item in agents:
+        agent_system = str(item.get("agent") or "")
+        agent_name = str(item.get("name") or "").strip()
+        agent_display = _display_agent(agent_system, amap)
+        if agent_display != agent_system:
+            label = f"{agent_display} ({agent_system})"
+        elif agent_name and agent_name != agent_system:
+            label = f"{agent_system} ({agent_name})"
+        else:
+            label = agent_system
+        agent_options.append({"value": agent_system, "label": label})
+
     return {
-        "queues": _get_available_queues(),
-        "agents": _get_available_agents(),
-        "default_start": request.GET.get("start") or now.replace(hour=0, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S"),
-        "default_end": request.GET.get("end") or now.replace(hour=23, minute=59, second=59).strftime("%Y-%m-%d %H:%M:%S"),
+        "queues": queues,
+        "agents": agents,
+        "queue_options": queue_options,
+        "agent_options": agent_options,
+        "default_start": start_value or now.replace(hour=0, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S"),
+        "default_end": end_value or now.replace(hour=23, minute=59, second=59).strftime("%Y-%m-%d %H:%M:%S"),
         "selected_queues": ",".join(selected_queues_list),
         "selected_agents": ",".join(selected_agents_list),
         "selected_queues_list": selected_queues_list,
         "selected_agents_list": selected_agents_list,
-        "selected_src": request.GET.get("src", ""),
-        "selected_dst": request.GET.get("dst", ""),
-        "selected_disposition": request.GET.get("disposition", ""),
-        "selected_channel": request.GET.get("channel", ""),
-        "selected_caller": request.GET.get("caller", ""),
-        "selected_query": request.GET.get("q", ""),
-        "selected_page_size": request.GET.get("page_size", "100"),
+        "selected_src": _filter_value(request, "src"),
+        "selected_dst": _filter_value(request, "dst"),
+        "selected_disposition": _filter_value(request, "disposition"),
+        "selected_channel": _filter_value(request, "channel"),
+        "selected_caller": _filter_value(request, "caller"),
+        "selected_query": _filter_value(request, "q"),
+        "selected_page_size": _filter_value(request, "page_size", "100"),
     }
 
 
@@ -424,7 +513,7 @@ def _paginated_rows(request: HttpRequest, rows: List[Dict[str, Any]], default_pa
 
 def _pagination_params(request: HttpRequest, default_page_size: int = 100, max_page_size: int = 500) -> tuple[int, int]:
     page = _to_int(request.GET.get("page"), default=1, minimum=1)
-    page_size = _to_int(request.GET.get("page_size"), default=default_page_size, minimum=1, maximum=max_page_size)
+    page_size = _to_int(_filter_value(request, "page_size", str(default_page_size)), default=default_page_size, minimum=1, maximum=max_page_size)
     return page, page_size
 
 
@@ -624,9 +713,9 @@ def _unanswered_dataset(request: HttpRequest) -> Dict[str, Any]:
 def _cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
     start, end = _interval_from_request(request)
     agents = _get_param_list(request, "agents")
-    src_filter = (request.GET.get("src") or "").strip()
-    dst_filter = (request.GET.get("dst") or "").strip()
-    disposition_filter = (request.GET.get("disposition") or "").strip()
+    src_filter = _filter_value(request, "src")
+    dst_filter = _filter_value(request, "dst")
+    disposition_filter = _filter_value(request, "disposition")
     page, page_size = _pagination_params(request)
 
     amap = _agent_map()
@@ -883,26 +972,45 @@ def _transcribe_call(callid: str) -> tuple[bool, str]:
         filename, file_bytes, content_type = _fetch_recording_bytes_for_call(callid)
         request_headers = {"X-API-KEY": api_key, "Accept": "application/json"}
         request_files = {"file": (filename, file_bytes, content_type)}
-        request_timeout = (10, 300)
-        try:
-            response = requests.post(
-                api_url,
-                headers=request_headers,
-                files=request_files,
-                timeout=request_timeout,
-            )
-        except requests.RequestException:
-            parsed = urlparse(api_url)
-            if parsed.scheme != "https":
-                raise
+        request_timeout = (15, 900)
+        request_attempts = 3
+
+        candidate_urls = [api_url]
+        parsed = urlparse(api_url)
+        if parsed.scheme == "https":
             # Some endpoints are plain HTTP but mistakenly configured as HTTPS.
-            fallback_url = urlunparse(parsed._replace(scheme="http"))
-            response = requests.post(
-                fallback_url,
-                headers=request_headers,
-                files=request_files,
-                timeout=request_timeout,
-            )
+            candidate_urls.append(urlunparse(parsed._replace(scheme="http")))
+
+        response = None
+        last_error: requests.RequestException | None = None
+        for target_url in candidate_urls:
+            for attempt in range(1, request_attempts + 1):
+                try:
+                    response = requests.post(
+                        target_url,
+                        headers=request_headers,
+                        files=request_files,
+                        timeout=request_timeout,
+                    )
+                    response.raise_for_status()
+                    break
+                except (requests.Timeout, requests.ConnectionError) as exc:
+                    last_error = exc
+                    if attempt < request_attempts:
+                        time.sleep(1)
+                        continue
+                    break
+                except requests.RequestException as exc:
+                    last_error = exc
+                    break
+            if response is not None:
+                break
+
+        if response is None:
+            if last_error is not None:
+                raise last_error
+            raise requests.RequestException(i18n_tr("Не удалось получить ответ от сервиса транскрибации"))
+
         response.raise_for_status()
         payload = response.json() if response.content else {}
         text = str(payload.get("text") or "").strip()
@@ -1601,9 +1709,9 @@ def _dashboard_operators_dataset(request: HttpRequest) -> Dict[str, Any]:
 
 
 def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, str] | None = None) -> Dict[str, Any]:
-    def _filter_value(key: str) -> str:
+    def _snapshot_filter_value(key: str) -> str:
         if request is not None:
-            return request.GET.get(key, "")
+            return _filter_value(request, key)
         if filters is not None:
             return filters.get(key, "")
         return ""
@@ -1613,9 +1721,9 @@ def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, s
     if request is not None:
         queues_filter = set(_get_param_list(request, "queues"))
     else:
-        queues_filter = set(_normalize_list(_filter_value("queues")))
-    channel_filter = (_filter_value("channel") or "").strip().lower()
-    caller_filter = (_filter_value("caller") or "").strip().lower()
+        queues_filter = set(_normalize_list(_snapshot_filter_value("queues")))
+    channel_filter = (_snapshot_filter_value("channel") or "").strip().lower()
+    caller_filter = (_snapshot_filter_value("caller") or "").strip().lower()
 
     settings = GeneralSettings.objects.first()
     if not settings or not settings.ami_host:
@@ -2094,8 +2202,23 @@ def call_detail_page(request: HttpRequest, callid: str) -> HttpResponse:
             else:
                 error = message
 
+    dataset = _call_detail_dataset(callid)
+    should_autotranscribe = (
+        request.method != "POST"
+        and dataset.get("transcription_configured")
+        and bool(dataset.get("cdr") and dataset["cdr"].get("has_recording"))
+        and dataset.get("transcription") is None
+    )
+    if should_autotranscribe:
+        ok, message = _transcribe_call(callid)
+        if ok:
+            notice = message
+        else:
+            error = message
+        dataset = _call_detail_dataset(callid)
+
     context = _base_context(request)
-    context.update(_call_detail_dataset(callid))
+    context.update(dataset)
     context["notice"] = notice
     context["error"] = error
     return render(request, "stats/reports/call_detail_page.html", context)
@@ -2246,6 +2369,18 @@ def settings_page(request: HttpRequest) -> HttpResponse:
         payout_qs = payout_qs.filter(agent_system_name__icontains=query)
 
     context = _base_context(request)
+    payout_rows: List[Dict[str, Any]] = []
+    amap = _agent_map()
+    for row in payout_qs:
+        agent_system_name = str(row.agent_system_name or "")
+        payout_rows.append(
+            {
+                "agent_system_name": agent_system_name,
+                "agent_display_name": _display_agent(agent_system_name, amap),
+                "rate_per_minute": row.rate_per_minute,
+            }
+        )
+
     context.update(
         {
             "notice": notice,
@@ -2254,7 +2389,7 @@ def settings_page(request: HttpRequest) -> HttpResponse:
             "currency_choices": ["UZS", "USD", "RUB", "EUR"],
             "queue_mappings": queue_qs,
             "agent_mappings": agent_qs,
-            "payout_rates": payout_qs,
+            "payout_rates": payout_rows,
         }
     )
     return render(request, "stats/settings_page.html", context)

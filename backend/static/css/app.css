@@ -114,6 +114,14 @@
   font-size: 0.82rem;
 }
 
+.radix-table caption {
+  caption-side: top;
+  text-align: left;
+  font-size: 0.78rem;
+  color: var(--slate-300);
+  margin-bottom: 0.4rem;
+}
+
 .radix-table th,
 .radix-table td {
   border-bottom: 1px solid var(--slate-800);
@@ -130,6 +138,51 @@
 
 [data-theme="light"] .radix-table th {
   background: #f8fafc;
+}
+
+.table-kpi-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.table-period {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--slate-300);
+}
+
+.table-kpi-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.table-kpi {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--slate-700);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  background: rgba(15, 23, 42, 0.55);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+[data-theme="light"] .table-kpi {
+  background: #ffffff;
+}
+
+.table-kpi-label {
+  color: var(--slate-300);
+}
+
+.table-kpi-value {
+  color: var(--slate-100);
+  font-weight: 700;
 }
 
 .call-link {

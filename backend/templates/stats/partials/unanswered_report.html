@@ -1,7 +1,12 @@
 <div class="space-y-2">
-  <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
-  <p class="text-sm text-slate-300">{% tr "Всего" %}: {{ total }} | Avg Wait: {{ avg_wait }}s</p>
-  <p class="text-sm text-slate-400">{% tr "Показаны записи" %}: {{ start_index }}-{{ end_index }} / {{ total }}</p>
+  <div class="table-kpi-header">
+    <p class="table-period">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+    <div class="table-kpi-list">
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Всего" %}</span><span class="table-kpi-value">{{ total }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Avg Wait</span><span class="table-kpi-value">{{ avg_wait }}s</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Показаны записи" %}</span><span class="table-kpi-value">{{ start_index }}-{{ end_index }} / {{ total }}</span></span>
+    </div>
+  </div>
   <div class="overflow-auto max-h-96">
     <table class="radix-table">
       <thead><tr><th>Time</th><th>Caller</th><th>Queue</th><th>Event</th><th>Start Pos</th><th>End Pos</th><th>Wait</th></tr></thead>

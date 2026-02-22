@@ -5,8 +5,9 @@
   <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-7 gap-3">
     <input name="start" value="{{ default_start }}" class="radix-input" />
     <input name="end" value="{{ default_end }}" class="radix-input" />
+    <input type="hidden" name="agents" value="" />
     <select name="agents" multiple class="radix-input radix-select-multi">
-      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+      {% for a in agent_options %}<option value="{{ a.value }}"{% if a.value in selected_agents_list %} selected{% endif %}>{{ a.label }}</option>{% endfor %}
     </select>
     <input name="src" value="{{ selected_src }}" placeholder="src" class="radix-input" />
     <input name="dst" value="{{ selected_dst }}" placeholder="dst" class="radix-input" />

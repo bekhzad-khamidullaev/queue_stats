@@ -1,7 +1,13 @@
 <div class="space-y-2">
-  <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
-  <p class="text-sm text-slate-300">{% tr "Всего звонков" %}: {{ total }} | Avg Hold: {{ avg_hold }} | Avg Talk: {{ avg_talk }}</p>
-  <p class="text-sm text-slate-400">{% tr "Показаны записи" %}: {{ start_index }}-{{ end_index }} / {{ total }}</p>
+  <div class="table-kpi-header">
+    <p class="table-period">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+    <div class="table-kpi-list">
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Всего звонков" %}</span><span class="table-kpi-value">{{ total }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Avg Hold</span><span class="table-kpi-value">{{ avg_hold }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">Avg Talk</span><span class="table-kpi-value">{{ avg_talk }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Показаны записи" %}</span><span class="table-kpi-value">{{ start_index }}-{{ end_index }} / {{ total }}</span></span>
+    </div>
+  </div>
   <div class="overflow-auto max-h-96">
     <table class="radix-table">
       <thead><tr><th>Time</th><th>Caller</th><th>Queue</th><th>Operator</th><th>Hold</th><th>Talk</th></tr></thead>

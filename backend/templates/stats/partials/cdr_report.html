@@ -1,7 +1,11 @@
 <div class="space-y-2">
-  <p class="text-sm text-slate-300">{% tr "Период" %}: {{ start }} - {{ end }}</p>
-  <p class="text-sm text-slate-300">{% tr "Всего CDR" %}: {{ total }}</p>
-  <p class="text-sm text-slate-400">{% tr "Показаны записи" %}: {{ start_index }}-{{ end_index }} / {{ total }}</p>
+  <div class="table-kpi-header">
+    <p class="table-period">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+    <div class="table-kpi-list">
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Всего CDR" %}</span><span class="table-kpi-value">{{ total }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Показаны записи" %}</span><span class="table-kpi-value">{{ start_index }}-{{ end_index }} / {{ total }}</span></span>
+    </div>
+  </div>
   <div class="overflow-auto max-h-[38rem]">
     <table class="radix-table">
       <thead><tr><th>UniqueID</th><th>Date</th><th>Operator</th><th>SRC</th><th>DST</th><th>Duration</th><th>Billsec</th><th>Disposition</th><th>{% tr "Прослушивание" %}</th></tr></thead>

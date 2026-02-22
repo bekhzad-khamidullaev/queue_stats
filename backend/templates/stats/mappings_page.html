@@ -19,7 +19,7 @@
         <input type="hidden" name="mapping_type" value="queue" />
         <select name="system_name" class="radix-input" required>
           <option value="">{% tr "Выберите очередь" %}</option>
-          {% for q in queues %}<option value="{{ q }}">{{ q }}</option>{% endfor %}
+          {% for q in queue_options %}<option value="{{ q.value }}">{{ q.label }}</option>{% endfor %}
         </select>
         <input name="display_name" class="radix-input" placeholder="{% tr "Например: Техподдержка" %}" required />
         <div class="flex gap-2">
@@ -39,7 +39,7 @@
         <input type="hidden" name="mapping_type" value="agent" />
         <select name="system_name" class="radix-input" required>
           <option value="">{% tr "Выберите оператора" %}</option>
-          {% for a in agents %}<option value="{{ a.agent }}">{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+          {% for a in agent_options %}<option value="{{ a.value }}">{{ a.label }}</option>{% endfor %}
         </select>
         <input name="display_name" class="radix-input" placeholder="{% tr "Например: Иванов И.И." %}" required />
         <div class="flex gap-2">
@@ -59,7 +59,7 @@
         <input type="hidden" name="mapping_type" value="rate" />
         <select name="system_name" class="radix-input" required>
           <option value="">{% tr "Выберите оператора" %}</option>
-          {% for a in agents %}<option value="{{ a.agent }}">{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+          {% for a in agent_options %}<option value="{{ a.value }}">{{ a.label }}</option>{% endfor %}
         </select>
         <input name="rate_per_minute" class="radix-input" type="number" step="0.01" min="0" placeholder="{% tr "Например: 3.50" %}" required />
         <div class="flex gap-2">
@@ -68,7 +68,7 @@
         </div>
       </form>
       <div class="overflow-auto mt-3 max-h-80">
-        <table class="radix-table"><thead><tr><th>{% tr "Оператор" %}</th><th>{% tr "Ставка/мин" %}</th></tr></thead><tbody>{% for r in payout_rates %}<tr><td>{{ r.agent_system_name }}</td><td>{{ r.rate_per_minute }}</td></tr>{% empty %}<tr><td colspan="2">{% tr "Нет ставок" %}</td></tr>{% endfor %}</tbody></table>
+        <table class="radix-table"><thead><tr><th>{% tr "Оператор" %}</th><th>{% tr "Ставка/мин" %}</th></tr></thead><tbody>{% for r in payout_rates %}<tr><td>{{ r.agent_display_name }}</td><td>{{ r.rate_per_minute }}</td></tr>{% empty %}<tr><td colspan="2">{% tr "Нет ставок" %}</td></tr>{% endfor %}</tbody></table>
       </div>
     </div>
   </div>

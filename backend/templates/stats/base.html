@@ -27,6 +27,31 @@
     <script src="/static/js/charts.js" defer></script>
     <script src="/static/js/select2-init.js" defer></script>
     <script src="/static/js/theme-toggle.js" defer></script>
+    <script>
+      function syncTableRowCaptions() {
+        document.querySelectorAll(".radix-table").forEach(function (table) {
+          if (table.dataset.autoCounter === "off") return;
+          var tbody = table.tBodies && table.tBodies[0];
+          if (!tbody) return;
+          var dataRows = 0;
+          Array.prototype.forEach.call(tbody.rows, function (row) {
+            var firstCell = row.cells && row.cells[0];
+            if (!firstCell || firstCell.colSpan < 2) dataRows += 1;
+          });
+          var caption = table.caption;
+          if (!caption || caption.dataset.autoCounter !== "on") {
+            caption = document.createElement("caption");
+            caption.dataset.autoCounter = "on";
+            table.insertBefore(caption, table.firstChild);
+          }
+          caption.textContent = "Строк: " + dataRows;
+        });
+      }
+
+      document.addEventListener("DOMContentLoaded", syncTableRowCaptions);
+      document.addEventListener("htmx:afterSwap", syncTableRowCaptions);
+      document.addEventListener("htmx:afterSettle", syncTableRowCaptions);
+    </script>
   </head>
   <body class="radix-body">
     {% if request.user.is_authenticated %}

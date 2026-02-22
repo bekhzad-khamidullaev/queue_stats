@@ -6,11 +6,13 @@
   <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
     <input name="start" value="{{ default_start }}" class="radix-input" />
     <input name="end" value="{{ default_end }}" class="radix-input" />
+    <input type="hidden" name="queues" value="" />
     <select name="queues" multiple class="radix-input radix-select-multi">
-      {% for q in queues %}<option value="{{ q }}"{% if q in selected_queues_list %} selected{% endif %}>{{ q }}</option>{% endfor %}
+      {% for q in queue_options %}<option value="{{ q.value }}"{% if q.value in selected_queues_list %} selected{% endif %}>{{ q.label }}</option>{% endfor %}
     </select>
+    <input type="hidden" name="agents" value="" />
     <select name="agents" multiple class="radix-input radix-select-multi">
-      {% for a in agents %}<option value="{{ a.agent }}"{% if a.agent in selected_agents_list %} selected{% endif %}>{{ a.agent }}{% if a.name %} ({{ a.name }}){% endif %}</option>{% endfor %}
+      {% for a in agent_options %}<option value="{{ a.value }}"{% if a.value in selected_agents_list %} selected{% endif %}>{{ a.label }}</option>{% endfor %}
     </select>
     <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить дашборд" %}</button>
   </form>
