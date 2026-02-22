@@ -98,9 +98,17 @@ class AMIManager:
         if self.socket:
             try:
                 if self.connected:
-                    self._send_action("Logoff")
-            except Exception as exc:
-                logger.debug("Logoff error during disconnect: %s", exc)
+                    try:
+                        self._send_action("Logoff")
+                    except Exception as exc:
+                        logger.debug("Logoff error during disconnect: %s", exc)
+                
+                # Signal the listener thread that we are closing
+                try:
+                    self.socket.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+                    
             finally:
                 try:
                     self.socket.close()
@@ -179,6 +187,12 @@ class AMIManager:
                     
             except socket.timeout:
                 continue
+            except socket.error as e:
+                # If we are stopping, ignore "Bad file descriptor" or other connection closed errors
+                if not self.running:
+                    break
+                logger.error(f"Event listener socket error: {e}")
+                break
             except Exception as e:
                 logger.error(f"Event listener error: {e}")
                 break
@@ -517,7 +531,11 @@ class AMIManager:
         return {'success': True, 'count': response or []}
 
 
-def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, str] | None = None) -> Dict[str, Any]:
+def _build_ami_snapshot(
+    request: HttpRequest | None = None, 
+    filters: Dict[str, str] | None = None,
+    manager: Optional[AMIManager] = None
+) -> Dict[str, Any]:
     def _snapshot_filter_value(key: str) -> str:
         if request is not None:
             return _filter_value(request, key)
@@ -545,28 +563,34 @@ def _build_ami_snapshot(request: HttpRequest | None = None, filters: Dict[str, s
             "ami_error": i18n_tr("AMI не настроен"),
         }
 
-    manager = AMIManager(
-        host=settings.ami_host,
-        port=settings.ami_port,
-        username=settings.ami_user,
-        secret=settings.ami_password,
-    )
+    if manager is None:
+        manager = AMIManager(
+            host=settings.ami_host,
+            port=settings.ami_port,
+            username=settings.ami_user,
+            secret=settings.ami_password,
+        )
 
-    if not manager.connect():
-        return {
-            "queue_summary": [],
-            "active_calls": [],
-            "active_calls_count": 0,
-            "waiting_calls_count": 0,
-            "active_operators_count": 0,
-            "ami_error": i18n_tr("Нет соединения с AMI"),
-        }
+        if not manager.connect():
+            return {
+                "queue_summary": [],
+                "active_calls": [],
+                "active_calls_count": 0,
+                "waiting_calls_count": 0,
+                "active_operators_count": 0,
+                "ami_error": i18n_tr("Нет соединения с AMI"),
+            }
+        
+        should_disconnect = True
+    else:
+        should_disconnect = False
 
     try:
         summary_raw = manager.queue_summary().get("summary", [])
         channels_raw = manager.core_show_channels().get("channels", [])
     finally:
-        manager.disconnect()
+        if should_disconnect:
+            manager.disconnect()
 
     queue_summary: List[Dict[str, Any]] = []
     for row in summary_raw:

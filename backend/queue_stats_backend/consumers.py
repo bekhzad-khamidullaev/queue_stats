@@ -110,9 +110,20 @@ class HtmxRealtimeConsumer(AsyncWebsocketConsumer):
     async def _stream_loop(self):
         while self._running:
             try:
-                context = await asyncio.to_thread(_build_ami_snapshot, None, self._filters)
+                # Ensure we have a shared manager connection
+                # We can reuse the RealtimeConsumer's shared manager logic
+                manager = await asyncio.to_thread(self._get_shared_manager)
+                
+                context = await asyncio.to_thread(_build_ami_snapshot, None, self._filters, manager)
                 html = render_to_string("stats/partials/realtime_oob.html", context)
                 await self.send(text_data=html)
             except Exception as exc:
                 logger.error("HTMX realtime loop error: %s", exc)
             await asyncio.sleep(3)
+
+    def _get_shared_manager(self):
+        """Helper to ensure shared manager is connected (sync for thread safety)"""
+        # We reuse the logic from RealtimeConsumer to avoid duplication
+        # and ensure a single connection point.
+        RealtimeConsumer._ensure_ami_connection(RealtimeConsumer)
+        return RealtimeConsumer.ami_manager
