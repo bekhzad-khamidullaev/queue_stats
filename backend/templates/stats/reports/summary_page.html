@@ -3,8 +3,8 @@
 {% block body %}
 <section class="radix-card p-4 mb-4">
   <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
-    <input name="start" value="{{ default_start }}" class="radix-input" />
-    <input name="end" value="{{ default_end }}" class="radix-input" />
+    <input type="datetime-local" step="1" name="start" value="{{ start|date:'Y-m-d\\TH:i:s' }}" class="radix-input" />
+    <input type="datetime-local" step="1" name="end" value="{{ end|date:'Y-m-d\\TH:i:s' }}" class="radix-input" />
     <input type="hidden" name="queues" value="" />
     <select name="queues" multiple class="radix-input radix-select-multi">
       {% for q in queue_options %}<option value="{{ q.value }}"{% if q.value in selected_queues_list %} selected{% endif %}>{{ q.label }}</option>{% endfor %}

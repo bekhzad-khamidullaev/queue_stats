@@ -40,7 +40,7 @@ def _parse_request_payload(request: HttpRequest) -> JsonDict:
 def _parse_datetime(value: str | None, default: datetime | None = None) -> datetime | None:
     if not value:
         return default
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
         try:
             return datetime.strptime(value, fmt)
         except ValueError:
