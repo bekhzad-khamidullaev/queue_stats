@@ -3,15 +3,18 @@ import os
 import mimetypes
 from pathlib import Path
 import logging
+import threading
 from datetime import datetime
 
 import requests
 from django.shortcuts import render, redirect
-from django.http import HttpRequest, HttpResponse, Http404, StreamingHttpResponse, FileResponse
+from django.http import HttpRequest, HttpResponse, Http404, StreamingHttpResponse, FileResponse, JsonResponse
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.conf import settings as django_settings
 from django.db.models import QuerySet
+from django.db import close_old_connections
+from django.views.decorators.http import require_http_methods
 
 from settings.models import QueueDisplayMapping, AgentDisplayMapping, OperatorPayoutRate, GeneralSettings
 
@@ -43,6 +46,58 @@ from .i18n_map import tr as i18n_tr
 from .ami_integration import _build_ami_snapshot, AMIManager
 
 logger = logging.getLogger(__name__)
+
+
+def _is_valid_callid(callid: str) -> bool:
+    return bool(callid) and all(c.isalnum() or c in ".-_:" for c in callid)
+
+
+def _transcription_status_payload(callid: str) -> Dict[str, Any]:
+    from .models import Cdr, CallTranscription
+
+    normalized_callid = str(callid or "").strip()
+    conf = _get_general_settings()
+    transcription_configured = bool((conf.transcription_url or "").strip() and (conf.transcription_api_key or "").strip())
+
+    cdr_row = (
+        Cdr.objects.filter(uniqueid=normalized_callid)
+        .order_by("-calldate")
+        .values("recordingfile")
+        .first()
+    )
+    has_recording = bool(cdr_row and cdr_row.get("recordingfile"))
+
+    transcription = CallTranscription.objects.filter(callid=normalized_callid).first()
+    if not transcription:
+        return {
+            "status": CallTranscription.Status.PENDING,
+            "text": "",
+            "chunks": [],
+            "error_message": "",
+            "transcription_configured": transcription_configured,
+            "has_recording": has_recording,
+        }
+
+    text = str(transcription.text or "").strip()
+    chunks = [part.strip() for part in text.splitlines() if part.strip()]
+    return {
+        "status": transcription.status,
+        "text": text,
+        "chunks": chunks,
+        "error_message": str(transcription.error_message or ""),
+        "transcription_configured": transcription_configured,
+        "has_recording": has_recording,
+    }
+
+
+def _run_transcription_background(callid: str) -> None:
+    close_old_connections()
+    try:
+        _transcribe_call(callid)
+    except Exception as exc:
+        logger.exception("Async transcription failed for %s: %s", callid, exc)
+    finally:
+        close_old_connections()
 
 
 def _base_context(request: HttpRequest) -> Dict[str, Any]:
@@ -125,40 +180,65 @@ def report_cdr_page(request: HttpRequest) -> HttpResponse:
 def call_detail_page(request: HttpRequest, callid: str) -> HttpResponse:
     if not _user_allowed(request):
         return HttpResponse("forbidden", status=403)
-    if not callid or not all(c.isalnum() or c in ".-_:" for c in callid):
+    if not _is_valid_callid(callid):
         raise Http404("Invalid callid")
 
-    notice = ""
-    error = ""
-    if request.method == "POST":
-        action = (request.POST.get("action") or "").strip().lower()
-        if action == "transcribe":
-            ok, message = _transcribe_call(callid)
-            if ok:
-                notice = message
-            else:
-                error = message
-
     dataset = call_detail_dataset(callid)
-    should_autotranscribe = (
-        request.method != "POST"
-        and dataset.get("transcription_configured")
-        and bool(dataset.get("cdr") and dataset["cdr"].get("has_recording"))
-        and dataset.get("transcription") is None
-    )
-    if should_autotranscribe:
-        ok, message = _transcribe_call(callid)
-        if ok:
-            notice = message
-        else:
-            error = message
-        dataset = call_detail_dataset(callid)
 
     context = _base_context(request)
     context.update(dataset)
-    context["notice"] = notice
-    context["error"] = error
+    context["notice"] = ""
+    context["error"] = ""
     return render(request, "stats/reports/call_detail_page.html", context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def call_transcription_start(request: HttpRequest, callid: str) -> JsonResponse:
+    from .models import CallTranscription
+
+    if not _user_allowed(request):
+        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
+    if not _is_valid_callid(callid):
+        return JsonResponse({"ok": False, "error": "Invalid callid"}, status=400)
+
+    payload = _transcription_status_payload(callid)
+    if not payload.get("transcription_configured"):
+        return JsonResponse({"ok": False, "error": i18n_tr("Сервис транскрибации не настроен")}, status=400)
+    if not payload.get("has_recording"):
+        return JsonResponse({"ok": False, "error": i18n_tr("Для этого звонка нет аудиозаписи")}, status=400)
+    if payload.get("status") == CallTranscription.Status.PROCESSING:
+        return JsonResponse({"ok": True, "status": CallTranscription.Status.PROCESSING, "message": i18n_tr("Распознавание уже выполняется")})
+
+    transcription, _ = CallTranscription.objects.get_or_create(callid=callid)
+    transcription.status = CallTranscription.Status.PROCESSING
+    transcription.text = ""
+    transcription.error_message = ""
+    transcription.save(update_fields=["status", "text", "error_message", "updated_at"])
+
+    worker = threading.Thread(target=_run_transcription_background, args=(callid,), daemon=True)
+    worker.start()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "status": CallTranscription.Status.PROCESSING,
+            "message": i18n_tr("Транскрипция запущена"),
+        }
+    )
+
+
+@login_required
+@require_http_methods(["GET"])
+def call_transcription_status(request: HttpRequest, callid: str) -> JsonResponse:
+    if not _user_allowed(request):
+        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
+    if not _is_valid_callid(callid):
+        return JsonResponse({"ok": False, "error": "Invalid callid"}, status=400)
+
+    payload = _transcription_status_payload(callid)
+    payload["ok"] = True
+    return JsonResponse(payload)
 
 
 @login_required

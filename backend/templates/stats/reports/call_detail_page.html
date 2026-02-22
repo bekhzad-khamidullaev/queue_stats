@@ -42,24 +42,26 @@
   <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
     <h2 class="text-lg font-semibold">{% tr "Диалог (транскрипт)" %}</h2>
     {% if transcription_configured and cdr and cdr.has_recording %}
-    <form method="post">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="transcribe" />
-      <button class="radix-button" type="submit">{% tr "Распознать аудио" %}</button>
-    </form>
+    <button id="transcribe-start-btn" class="radix-button" type="button">{% tr "Распознать аудио" %}</button>
     {% endif %}
   </div>
 
-  {% if not transcription_configured %}
-    <p class="text-sm text-slate-400">{% tr "Сервис транскрибации не настроен (проверьте URL и API ключ в Settings)." %}</p>
-  {% elif not cdr or not cdr.has_recording %}
-    <p class="text-sm text-slate-400">{% tr "Для этого звонка нет аудиозаписи." %}</p>
-  {% elif transcription and transcription.status == "processing" %}
-    <p class="text-sm text-slate-300">{% tr "Идет распознавание..." %}</p>
-  {% elif transcription and transcription.status == "failed" %}
-    <p class="text-sm text-red-300">{{ transcription.error_message }}</p>
-  {% elif transcription_text %}
-    <div class="dialog-chat">
+  <div id="transcription-status-box">
+    {% if not transcription_configured %}
+      <p class="text-sm text-slate-400">{% tr "Сервис транскрибации не настроен (проверьте URL и API ключ в Settings)." %}</p>
+    {% elif not cdr or not cdr.has_recording %}
+      <p class="text-sm text-slate-400">{% tr "Для этого звонка нет аудиозаписи." %}</p>
+    {% elif transcription and transcription.status == "processing" %}
+      <p class="text-sm text-slate-300">{% tr "Идет распознавание..." %}</p>
+    {% elif transcription and transcription.status == "failed" %}
+      <p class="text-sm text-red-300">{{ transcription.error_message }}</p>
+    {% elif not transcription_text %}
+      <p class="text-sm text-slate-400">{% tr "Транскрипт пока не создан." %}</p>
+    {% endif %}
+  </div>
+
+  <div id="transcription-chat" class="dialog-chat{% if not transcription_text %} hidden{% endif %}">
+    {% if transcription_text %}
       {% for chunk in transcription_chunks %}
       <div class="dialog-msg-row {% if forloop.counter0|divisibleby:2 %}dialog-msg-row-in{% else %}dialog-msg-row-out{% endif %}">
         <div class="dialog-msg {% if forloop.counter0|divisibleby:2 %}dialog-msg-in{% else %}dialog-msg-out{% endif %}">
@@ -67,10 +69,8 @@
         </div>
       </div>
       {% endfor %}
-    </div>
-  {% else %}
-    <p class="text-sm text-slate-400">{% tr "Транскрипт пока не создан." %}</p>
-  {% endif %}
+    {% endif %}
+  </div>
 </section>
 
 <section class="radix-card p-4">
@@ -92,4 +92,145 @@
   <p class="text-sm text-slate-400">{% tr "События по этому звонку не найдены." %}</p>
   {% endif %}
 </section>
+{% csrf_token %}
+<script>
+  (function () {
+    var button = document.getElementById("transcribe-start-btn");
+    var statusBox = document.getElementById("transcription-status-box");
+    var chatBox = document.getElementById("transcription-chat");
+    var startUrl = "{% url 'call-transcription-start' callid %}";
+    var statusUrl = "{% url 'call-transcription-status' callid %}";
+    var pollHandle = null;
+    var csrfInput = document.querySelector("input[name='csrfmiddlewaretoken']");
+    var csrfToken = csrfInput ? csrfInput.value : "";
+
+    function setStatus(text, cssClass) {
+      statusBox.innerHTML = "";
+      if (!text) return;
+      var p = document.createElement("p");
+      p.className = cssClass || "text-sm text-slate-300";
+      p.textContent = text;
+      statusBox.appendChild(p);
+    }
+
+    function setButtonState(disabled) {
+      if (!button) return;
+      button.disabled = !!disabled;
+      button.classList.toggle("opacity-70", !!disabled);
+      button.classList.toggle("cursor-not-allowed", !!disabled);
+    }
+
+    function renderTranscript(text) {
+      chatBox.innerHTML = "";
+      var chunks = String(text || "").split(/(?<=[.!?])\s+/).filter(Boolean);
+      chunks.forEach(function (chunk, index) {
+        var row = document.createElement("div");
+        row.className = "dialog-msg-row " + (index % 2 === 0 ? "dialog-msg-row-in" : "dialog-msg-row-out");
+        var msg = document.createElement("div");
+        msg.className = "dialog-msg " + (index % 2 === 0 ? "dialog-msg-in" : "dialog-msg-out");
+        var p = document.createElement("p");
+        p.className = "dialog-msg-text";
+        p.textContent = chunk;
+        msg.appendChild(p);
+        row.appendChild(msg);
+        chatBox.appendChild(row);
+      });
+      chatBox.classList.remove("hidden");
+    }
+
+    function stopPolling() {
+      if (!pollHandle) return;
+      clearInterval(pollHandle);
+      pollHandle = null;
+    }
+
+    function applyState(payload) {
+      if (!payload.transcription_configured) {
+        setStatus("{% tr 'Сервис транскрибации не настроен (проверьте URL и API ключ в Settings).' %}", "text-sm text-slate-400");
+        chatBox.classList.add("hidden");
+        stopPolling();
+        setButtonState(true);
+        return;
+      }
+      if (!payload.has_recording) {
+        setStatus("{% tr 'Для этого звонка нет аудиозаписи.' %}", "text-sm text-slate-400");
+        chatBox.classList.add("hidden");
+        stopPolling();
+        setButtonState(true);
+        return;
+      }
+
+      if (payload.status === "processing") {
+        setStatus("{% tr 'Идет распознавание...' %}", "text-sm text-slate-300");
+        setButtonState(true);
+        return;
+      }
+
+      if (payload.status === "failed") {
+        setStatus(payload.error_message || "{% tr 'Ошибка транскрибации' %}", "text-sm text-red-300");
+        chatBox.classList.add("hidden");
+        stopPolling();
+        setButtonState(false);
+        return;
+      }
+
+      if (payload.status === "success" && payload.text) {
+        setStatus("", "text-sm text-slate-300");
+        renderTranscript(payload.text);
+        stopPolling();
+        setButtonState(false);
+        return;
+      }
+
+      setStatus("{% tr 'Транскрипт пока не создан.' %}", "text-sm text-slate-400");
+      chatBox.classList.add("hidden");
+      stopPolling();
+      setButtonState(false);
+    }
+
+    function pollStatus() {
+      fetch(statusUrl, { headers: { "Accept": "application/json" } })
+        .then(function (res) { return res.json(); })
+        .then(function (payload) { applyState(payload); })
+        .catch(function () { /* keep previous state */ });
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollStatus();
+      pollHandle = setInterval(pollStatus, 2000);
+    }
+
+    if (button) {
+      button.addEventListener("click", function () {
+        setButtonState(true);
+        setStatus("{% tr 'Идет распознавание...' %}", "text-sm text-slate-300");
+        fetch(startUrl, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": csrfToken,
+            "Accept": "application/json"
+          }
+        })
+          .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok || !result.data.ok) {
+              setStatus(result.data.error || "{% tr 'Ошибка транскрибации' %}", "text-sm text-red-300");
+              setButtonState(false);
+              return;
+            }
+            startPolling();
+          })
+          .catch(function () {
+            setStatus("{% tr 'Ошибка транскрибации' %}", "text-sm text-red-300");
+            setButtonState(false);
+          });
+      });
+    }
+
+    {% if transcription and transcription.status == "processing" %}
+    startPolling();
+    {% endif %}
+  })();
+</script>
 {% endblock %}
