@@ -19,7 +19,9 @@
   <div class="flex flex-wrap gap-2 mt-3">
     <a class="radix-button-secondary" href="{% url 'ui-export-analytics-xlsx' %}?start={{ start|date:'Y-m-d\\TH:i:s' }}&end={{ end|date:'Y-m-d\\TH:i:s' }}&queues={{ selected_queues }}&agents={{ selected_agents }}">XLSX</a>
     <a class="radix-button-secondary" href="{% url 'ui-export-analytics-pdf' %}?start={{ start|date:'Y-m-d\\TH:i:s' }}&end={{ end|date:'Y-m-d\\TH:i:s' }}&queues={{ selected_queues }}&agents={{ selected_agents }}">PDF + Plots</a>
+    <button id="shareAnalyticsViewBtn" class="radix-button-secondary" type="button">{% tr "Поделиться этим видом" %}</button>
   </div>
+  <p id="shareAnalyticsStatus" class="text-sm text-slate-400 mt-2 hidden"></p>
 </section>
 
 <section class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
@@ -55,56 +57,56 @@
 <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">Daily calls trend</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsDailyChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">Hourly load distribution</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsHourlyChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">Calls by queue</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsQueueCallsChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">Answered calls by operator</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsAgentAnsweredChart"></canvas>
     </div>
   </div>
 
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Часто звонящие номера" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsFrequentCallersChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Рейтинг операторов по количеству" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsOperatorCallsChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Рейтинг операторов по времени" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsOperatorTalkChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Тренд исходящего времени" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsOutgoingTalkTrendChart"></canvas>
     </div>
   </div>
   <div class="radix-card p-4 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-3">{% tr "Тренд входящего времени" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2">
+    <div class="h-64 chart-surface">
       <canvas id="analyticsIncomingTalkTrendChart"></canvas>
     </div>
   </div>
@@ -168,6 +170,90 @@
 {% localize off %}
 <script>
   document.addEventListener("DOMContentLoaded", function () {
+    var shareBtn = document.getElementById("shareAnalyticsViewBtn");
+    var shareStatus = document.getElementById("shareAnalyticsStatus");
+
+    function setShareStatus(message, isError) {
+      if (!shareStatus) return;
+      shareStatus.textContent = message;
+      shareStatus.classList.remove("hidden", "text-slate-400", "text-green-300", "text-red-300");
+      shareStatus.classList.add(isError ? "text-red-300" : "text-green-300");
+    }
+
+    function getCookie(name) {
+      var cookieValue = "";
+      if (!document.cookie) return cookieValue;
+      var cookies = document.cookie.split(";");
+      for (var i = 0; i < cookies.length; i += 1) {
+        var cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + "=")) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+      return cookieValue;
+    }
+
+    function trackEvent(eventName, meta) {
+      return fetch("{% url 'ui-track-event' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken")
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          event: eventName,
+          meta: meta || {}
+        })
+      }).catch(function () {});
+    }
+
+    function buildShareUrl() {
+      var url = new URL(window.location.href);
+      var shareToken = Date.now().toString(36);
+      url.searchParams.set("shared", "1");
+      url.searchParams.set("source", "analytics_share");
+      url.searchParams.set("sref", shareToken);
+      return { value: url.toString(), token: shareToken };
+    }
+
+    if (window.location.search.indexOf("shared=1") !== -1) {
+      var sharedToken = "";
+      try {
+        sharedToken = new URL(window.location.href).searchParams.get("sref") || "";
+      } catch (e) {}
+      trackEvent("share_opened", { page: "analytics", source: "shared_link", shared_token: sharedToken });
+      setShareStatus("{% tr 'Открыт общий вид аналитики' %}", false);
+    }
+
+    if (shareBtn) {
+      shareBtn.addEventListener("click", function () {
+        var payload = buildShareUrl();
+        trackEvent("share_clicked", { page: "analytics", source: "button", shared_token: payload.token });
+
+        if (navigator.share) {
+          navigator.share({ title: "Queue Stats Analytics", url: payload.value }).then(function () {
+            setShareStatus("{% tr 'Ссылка отправлена' %}", false);
+          }).catch(function () {
+            // Ignore canceled share and fallback to clipboard.
+            navigator.clipboard.writeText(payload.value).then(function () {
+              setShareStatus("{% tr 'Ссылка скопирована' %}", false);
+            }).catch(function () {
+              setShareStatus("{% tr 'Не удалось поделиться ссылкой' %}", true);
+            });
+          });
+          return;
+        }
+
+        navigator.clipboard.writeText(payload.value).then(function () {
+          setShareStatus("{% tr 'Ссылка скопирована' %}", false);
+        }).catch(function () {
+          setShareStatus("{% tr 'Не удалось скопировать ссылку' %}", true);
+        });
+      });
+    }
+
     if (!window.QueueCharts) return;
 
     window.QueueCharts.renderLineChart("analyticsDailyChart", {

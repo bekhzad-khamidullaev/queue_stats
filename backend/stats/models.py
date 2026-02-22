@@ -97,3 +97,22 @@ class CallTranscription(models.Model):
         managed = True
         db_table = "call_transcriptions"
         ordering = ["-updated_at"]
+
+
+class ProductEvent(models.Model):
+    user = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="product_events",
+    )
+    event_name = models.CharField(max_length=64, db_index=True)
+    page = models.CharField(max_length=64, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        managed = True
+        db_table = "product_events"
+        ordering = ["-created_at"]

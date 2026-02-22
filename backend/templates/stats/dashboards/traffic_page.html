@@ -25,7 +25,7 @@
 <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Дневная динамика звонков" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2 mb-3">
+    <div class="h-64 chart-surface mb-3">
       <canvas id="trafficDailyChart"></canvas>
     </div>
     <div class="overflow-auto max-h-[34rem]">
@@ -37,7 +37,7 @@
   </div>
   <div class="radix-card p-4">
     <h2 class="text-lg font-semibold mb-3">{% tr "Почасовая нагрузка" %}</h2>
-    <div class="h-64 bg-slate-950/40 rounded-lg border border-slate-800 p-2 mb-3">
+    <div class="h-64 chart-surface mb-3">
       <canvas id="trafficHourlyChart"></canvas>
     </div>
     <div class="overflow-auto max-h-[34rem]">

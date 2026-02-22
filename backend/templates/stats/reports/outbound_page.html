@@ -1,128 +1,30 @@
 {% extends "stats/base.html" %}
 {% block title %}Исходящие звонки{% endblock %}
 {% block body %}
-<!-- KPI Overview -->
-<section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-  <div class="radix-card p-4 flex flex-col items-center justify-center">
-    <span class="text-sm text-slate-500 font-medium">{% tr "Всего" %}</span>
-    <span class="text-3xl font-bold text-slate-900 mt-1">{{ overview.TOTAL }}</span>
-  </div>
-  <div class="radix-card p-4 flex flex-col items-center justify-center">
-    <span class="text-sm text-slate-500 font-medium">{% tr "Отвечено" %}</span>
-    <span class="text-3xl font-bold text-green-600 mt-1">{{ overview.ANSWERED }}</span>
-  </div>
-  <div class="radix-card p-4 flex flex-col items-center justify-center">
-    <span class="text-sm text-slate-500 font-medium">{% tr "Занято" %}</span>
-    <span class="text-3xl font-bold text-orange-500 mt-1">{{ overview.BUSY }}</span>
-  </div>
-  <div class="radix-card p-4 flex flex-col items-center justify-center">
-    <span class="text-sm text-slate-500 font-medium">{% tr "Нет ответа" %}</span>
-    <span class="text-3xl font-bold text-red-500 mt-1">{{ overview.NO_ANSWER }}</span>
-  </div>
-</section>
-
 <section class="radix-card p-4 mb-4">
-  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-4 gap-3">
-    <input type="datetime-local" step="1" name="start" value="{{ start|date:'Y-m-d\TH:i:s' }}" class="radix-input" />
-    <input type="datetime-local" step="1" name="end" value="{{ end|date:'Y-m-d\TH:i:s' }}" class="radix-input" />
+  <form method="get" class="filters-grid grid grid-cols-1 md:grid-cols-7 gap-3">
+    <input type="datetime-local" step="1" name="start" value="{{ start|date:'Y-m-d\\TH:i:s' }}" class="radix-input" />
+    <input type="datetime-local" step="1" name="end" value="{{ end|date:'Y-m-d\\TH:i:s' }}" class="radix-input" />
     <input type="hidden" name="agents" value="" />
     <select name="agents" multiple class="radix-input radix-select-multi">
       {% for a in agent_options %}<option value="{{ a.value }}"{% if a.value in selected_agents_list %} selected{% endif %}>{{ a.label }}</option>{% endfor %}
     </select>
+    <input name="src" value="{{ selected_src }}" placeholder="src" class="radix-input" />
+    <input name="dst" value="{{ selected_dst }}" placeholder="dst" class="radix-input" />
+    <input name="disposition" value="{{ selected_disposition }}" placeholder="ANSWERED/NO ANSWER/BUSY" class="radix-input" />
     <select name="page_size" class="radix-input">
       <option value="50"{% if selected_page_size == "50" %} selected{% endif %}>50 / page</option>
       <option value="100"{% if selected_page_size == "100" %} selected{% endif %}>100 / page</option>
       <option value="200"{% if selected_page_size == "200" %} selected{% endif %}>200 / page</option>
       <option value="500"{% if selected_page_size == "500" %} selected{% endif %}>500 / page</option>
     </select>
-    <button class="radix-button md:col-span-4" type="submit">{% tr "Обновить" %}</button>
+    <button class="radix-button md:col-span-7" type="submit">{% tr "Обновить" %}</button>
   </form>
   <div class="flex flex-wrap gap-2 mt-3">
-    <a class="radix-button-secondary" href="{% url 'ui-export-outbound-xlsx' %}?start={{ start|date:'Y-m-d\TH:i:s' }}&end={{ end|date:'Y-m-d\TH:i:s' }}&agents={{ selected_agents }}">XLSX</a>
-    <a class="radix-button-secondary" href="{% url 'ui-export-outbound-pdf' %}?start={{ start|date:'Y-m-d\TH:i:s' }}&end={{ end|date:'Y-m-d\TH:i:s' }}&agents={{ selected_agents }}">PDF</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-outbound-xlsx' %}?start={{ start|date:'Y-m-d\\TH:i:s' }}&end={{ end|date:'Y-m-d\\TH:i:s' }}&agents={{ selected_agents }}&src={{ selected_src }}&dst={{ selected_dst }}&disposition={{ selected_disposition }}">XLSX</a>
+    <a class="radix-button-secondary" href="{% url 'ui-export-outbound-pdf' %}?start={{ start|date:'Y-m-d\\TH:i:s' }}&end={{ end|date:'Y-m-d\\TH:i:s' }}&agents={{ selected_agents }}&src={{ selected_src }}&dst={{ selected_dst }}&disposition={{ selected_disposition }}">PDF</a>
   </div>
 </section>
 
-<section class="radix-card p-4">
-<h2 class="text-lg font-semibold mb-4 text-slate-800">{% tr "Таблица исходящих вызовов" %}</h2>
-
-<div class="radix-table-wrapper w-full overflow-x-auto text-sm text-left">
-  <table class="radix-table">
-    <caption class="sr-only">{% tr "Исходящие звонки" %}</caption>
-    <thead class="bg-slate-50 border-b border-slate-200">
-      <tr>
-        <th>{% tr "Время" %}</th>
-        <th>{% tr "Оператор" %}</th>
-        <th>{% tr "Номер (Откуда)" %}</th>
-        <th>{% tr "Номер (Куда)" %}</th>
-        <th>{% tr "Статус" %}</th>
-        <th>{% tr "Разговор" %}</th>
-        <th>{% tr "Запись" %}</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100">
-      {% for row in rows %}
-      <tr class="hover:bg-slate-50/50 transition-colors">
-        <td class="whitespace-nowrap">{{ row.calldate|date:"Y-m-d H:i:s" }}</td>
-        <td>{{ row.operator_display }}</td>
-        <td>{{ row.src }}</td>
-        <td>{{ row.dst }}</td>
-        <td>
-          {% if row.disposition == 'ANSWERED' %}
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">ANSWERED</span>
-          {% elif row.disposition == 'BUSY' %}
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">BUSY</span>
-          {% else %}
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">{{ row.disposition }}</span>
-          {% endif %}
-        </td>
-        <td>{{ row.billsec|default:"0" }} {% tr "сек" %}</td>
-        <td>
-          {% if row.has_recording %}
-            <div class="flex items-center gap-2">
-              <audio controls preload="none" class="h-8 w-48" src="{% url 'recording-stream' row.uniqueid %}"></audio>
-            </div>
-          {% else %}
-            <span class="text-slate-400">-</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% empty %}
-      <tr>
-        <td colspan="7" class="text-center py-6 text-slate-500">{% tr "Нет данных за выбранный период" %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<div class="pagination flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 sm:px-6 mt-4">
-  <div class="flex flex-1 justify-between sm:hidden">
-    {% if has_prev %}
-      <a href="?page={{ page|add:'-1' }}&page_size={{ page_size }}&start={{ start|date:'Y-m-d\TH:i:s' }}&end={{ end|date:'Y-m-d\TH:i:s' }}&agents={{ selected_agents }}" class="radix-button-secondary">{% tr "Назад" %}</a>
-    {% else %}
-      <span class="radix-button-secondary opacity-50 cursor-not-allowed">{% tr "Назад" %}</span>
-    {% endif %}
-    {% if has_next %}
-      <a href="?page={{ page|add:'1' }}&page_size={{ page_size }}&start={{ start|date:'Y-m-d\TH:i:s' }}&end={{ end|date:'Y-m-d\TH:i:s' }}&agents={{ selected_agents }}" class="radix-button-secondary">{% tr "Вперёд" %}</a>
-    {% else %}
-      <span class="radix-button-secondary opacity-50 cursor-not-allowed">{% tr "Вперёд" %}</span>
-    {% endif %}
-  </div>
-  <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-    <div><p class="text-sm text-slate-700">{% tr "Всего записей:" %} <span class="font-medium">{{ total }}</span></p></div>
-    <div>
-      <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
-        {% if has_prev %}
-          <a href="?page={{ page|add:'-1' }}&page_size={{ page_size }}&start={{ start|date:'Y-m-d\TH:i:s' }}&end={{ end|date:'Y-m-d\TH:i:s' }}&agents={{ selected_agents }}" class="radix-button-secondary rounded-l-md px-2 py-2">{% tr "Назад" %}</a>
-        {% endif %}
-        <span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300">{{ page }} / {{ pages }}</span>
-        {% if has_next %}
-          <a href="?page={{ page|add:'1' }}&page_size={{ page_size }}&start={{ start|date:'Y-m-d\TH:i:s' }}&end={{ end|date:'Y-m-d\TH:i:s' }}&agents={{ selected_agents }}" class="radix-button-secondary rounded-r-md px-2 py-2">{% tr "Вперёд" %}</a>
-        {% endif %}
-      </nav>
-    </div>
-  </div>
-</div>
-</section>
+<section class="radix-card p-4">{% include "stats/partials/outbound_report.html" %}</section>
 {% endblock %}

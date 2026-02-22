@@ -245,6 +245,9 @@ def cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
 def outbound_dataset(request: HttpRequest) -> Dict[str, Any]:
     start, end = _interval_from_request(request)
     agents = _get_param_list(request, "agents")
+    src_filter = _filter_value(request, "src")
+    dst_filter = _filter_value(request, "dst")
+    disposition_filter = _filter_value(request, "disposition")
     page, page_size = _pagination_params(request)
     amap = _agent_map()
 
@@ -258,9 +261,27 @@ def outbound_dataset(request: HttpRequest) -> Dict[str, Any]:
                 if alias not in agent_values:
                     agent_values.append(alias)
         if agent_values:
-            agent_clause = f"cnam IN ({','.join(['%s'] * len(agent_values))})"
-            where.append(f"({agent_clause})")
+            placeholders = ",".join(["%s"] * len(agent_values))
+            where.append(
+                "("
+                f"cnam IN ({placeholders}) OR cnum IN ({placeholders}) OR dstchannel IN ({placeholders})"
+                ")"
+            )
             params.extend(agent_values)
+            params.extend(agent_values)
+            params.extend(agent_values)
+
+    if src_filter:
+        where.append("src LIKE %s")
+        params.append(f"%{src_filter}%")
+    if dst_filter:
+        where.append("(dst LIKE %s OR dcontext LIKE %s OR lastdata LIKE %s)")
+        params.append(f"%{dst_filter}%")
+        params.append(f"%{dst_filter}%")
+        params.append(f"%{dst_filter}%")
+    if disposition_filter:
+        where.append("disposition = %s")
+        params.append(disposition_filter)
 
     where_sql = " AND ".join(where)
 
@@ -286,7 +307,8 @@ def outbound_dataset(request: HttpRequest) -> Dict[str, Any]:
             SUM(CASE WHEN disposition = 'ANSWERED' THEN 1 ELSE 0 END) AS answered,
             SUM(CASE WHEN disposition = 'NO ANSWER' THEN 1 ELSE 0 END) AS no_answer,
             SUM(CASE WHEN disposition = 'BUSY' THEN 1 ELSE 0 END) AS busy,
-            COUNT(*) AS total_count
+            COUNT(*) AS total_count,
+            COALESCE(AVG(CAST(billsec AS UNSIGNED)), 0) AS avg_billsec
         FROM cdr
         WHERE {where_sql}
         GROUP BY agent_key
@@ -307,18 +329,26 @@ def outbound_dataset(request: HttpRequest) -> Dict[str, Any]:
         row["has_recording"] = bool(row.get("recordingfile"))
 
     overview = {"ANSWERED": 0, "NO ANSWER": 0, "BUSY": 0, "TOTAL": 0}
-    for agent_key, answered, no_answer, busy, total_count in overview_rows:
+    weighted_billsec_total = 0.0
+    for agent_key, answered, no_answer, busy, total_count, avg_billsec in overview_rows:
         overview["ANSWERED"] += int(answered or 0)
         overview["NO ANSWER"] += int(no_answer or 0)
         overview["BUSY"] += int(busy or 0)
         overview["TOTAL"] += int(total_count or 0)
-        
+        weighted_billsec_total += float(avg_billsec or 0) * int(total_count or 0)
+
+    avg_billsec = round(weighted_billsec_total / overview["TOTAL"], 2) if overview["TOTAL"] else 0
+
     return {
         "start": start,
         "end": end,
         "rows": data,
         "total": total,
         "overview": overview,
+        "avg_billsec": avg_billsec,
+        "selected_src": src_filter,
+        "selected_dst": dst_filter,
+        "selected_disposition": disposition_filter,
         **pagination,
     }
 

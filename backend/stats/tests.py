@@ -1,10 +1,12 @@
 
 from django.test import TestCase, RequestFactory
+from django.urls import reverse
 from unittest.mock import patch, MagicMock
 import json
 from datetime import datetime
 
 from .views import answered_report
+from .models import ProductEvent
 from accounts.models import User, UserRoles
 
 class AnsweredReportTestCase(TestCase):
@@ -81,3 +83,44 @@ class AnsweredReportTestCase(TestCase):
         self.assertEqual(response_distribution['queue1']['6-10'], 1)
         self.assertEqual(response_distribution['queue1']['11-15'], 1)
         self.assertEqual(response_distribution['queue2']['0-5'], 1)
+
+
+class ProductEventTrackingTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="analytics_user",
+            password="strong-password",
+            role=UserRoles.ANALYST,
+        )
+        self.client.force_login(self.user)
+        self.url = reverse("ui-track-event")
+
+    def test_track_share_clicked_event(self):
+        response = self.client.post(
+            self.url,
+            data=json.dumps(
+                {
+                    "event": "share_clicked",
+                    "meta": {"page": "analytics", "source": "button", "shared_token": "abc123"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ProductEvent.objects.count(), 1)
+        event = ProductEvent.objects.first()
+        self.assertEqual(event.event_name, "share_clicked")
+        self.assertEqual(event.page, "analytics")
+        self.assertEqual(event.metadata.get("source"), "button")
+        self.assertEqual(event.metadata.get("shared_token"), "abc123")
+
+    def test_invalid_event_is_rejected(self):
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"event": "unsupported_event", "meta": {"page": "analytics"}}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(ProductEvent.objects.count(), 0)

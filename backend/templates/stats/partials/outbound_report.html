@@ -1,0 +1,57 @@
+<div class="space-y-2">
+  <div class="table-kpi-header">
+    <p class="table-period">{% tr "Период" %}: {{ start }} - {{ end }}</p>
+    <div class="table-kpi-list">
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Всего исходящих" %}</span><span class="table-kpi-value">{{ overview.TOTAL }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Отвечено" %}</span><span class="table-kpi-value">{{ overview.ANSWERED }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Нет ответа" %}</span><span class="table-kpi-value">{{ overview.NO_ANSWER }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Занято" %}</span><span class="table-kpi-value">{{ overview.BUSY }}</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Средний разговор" %}</span><span class="table-kpi-value">{{ avg_billsec }}s</span></span>
+      <span class="table-kpi"><span class="table-kpi-label">{% tr "Показаны записи" %}</span><span class="table-kpi-value">{{ start_index }}-{{ end_index }} / {{ total }}</span></span>
+    </div>
+  </div>
+  <div class="overflow-auto max-h-[38rem]">
+    <table class="radix-table">
+      <thead><tr><th>UniqueID</th><th>Date</th><th>Operator</th><th>SRC</th><th>DST</th><th>Disposition</th><th>Billsec</th><th>{% tr "Прослушивание" %}</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr class="call-row-hover">
+          <td><a class="call-link" href="{% url 'call-detail-page' row.uniqueid %}">{{ row.uniqueid }}</a></td>
+          <td>{{ row.calldate }}</td>
+          <td>{{ row.operator_display }}</td>
+          <td>{{ row.src }}</td>
+          <td>{{ row.dst }}</td>
+          <td>
+            {% if row.disposition == "ANSWERED" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">ANSWERED</span>
+            {% elif row.disposition == "BUSY" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">BUSY</span>
+            {% elif row.disposition == "NO ANSWER" %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">NO ANSWER</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-500/15 text-slate-300 border border-slate-500/30">{{ row.disposition }}</span>
+            {% endif %}
+          </td>
+          <td>{{ row.billsec|default:"0" }}</td>
+          <td>
+            {% if row.has_recording %}
+            <audio controls preload="none" controlslist="nodownload noplaybackrate" class="max-w-44">
+              <source src="{% url 'recording-stream' row.uniqueid %}" />
+            </audio>
+            {% else %}
+            <span class="text-slate-500">{% tr "Нет" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">{% tr "Нет данных" %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex items-center gap-2">
+    {% if has_prev %}<a class="radix-button-secondary" href="{{ prev_page_url }}">{% tr "Назад" %}</a>{% endif %}
+    <span class="text-sm text-slate-300">{% tr "Страница" %} {{ page }} / {{ total_pages }}</span>
+    {% if has_next %}<a class="radix-button-secondary" href="{{ next_page_url }}">{% tr "Вперед" %}</a>{% endif %}
+  </div>
+</div>

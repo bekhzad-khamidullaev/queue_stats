@@ -4,6 +4,7 @@ import mimetypes
 from pathlib import Path
 import logging
 import threading
+import json
 from datetime import datetime
 
 import requests
@@ -47,6 +48,7 @@ from .i18n_map import tr as i18n_tr
 from .ami_integration import _build_ami_snapshot, AMIManager
 
 logger = logging.getLogger(__name__)
+ALLOWED_PRODUCT_EVENTS = {"share_clicked", "share_opened"}
 
 
 def _is_valid_callid(callid: str) -> bool:
@@ -274,6 +276,40 @@ def analytics_page(request: HttpRequest) -> HttpResponse:
     context = _base_context(request)
     context.update(analytics_dataset(request))
     return render(request, "stats/analytics_page.html", context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def track_product_event(request: HttpRequest) -> JsonResponse:
+    from .models import ProductEvent
+
+    if not _user_allowed(request):
+        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+
+    event_name = str(payload.get("event") or "").strip().lower()
+    if event_name not in ALLOWED_PRODUCT_EVENTS:
+        return JsonResponse({"ok": False, "error": "invalid_event"}, status=400)
+
+    raw_meta = payload.get("meta")
+    meta = raw_meta if isinstance(raw_meta, dict) else {}
+    page = str(meta.get("page") or "").strip()[:64]
+    source = str(meta.get("source") or "").strip()[:64]
+
+    ProductEvent.objects.create(
+        user=request.user,
+        event_name=event_name,
+        page=page,
+        metadata={
+            "source": source,
+            "shared_token": str(meta.get("shared_token") or "")[:64],
+        },
+    )
+    return JsonResponse({"ok": True})
 
 
 @login_required
