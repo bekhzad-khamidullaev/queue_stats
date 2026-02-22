@@ -242,6 +242,87 @@ def cdr_dataset(request: HttpRequest) -> Dict[str, Any]:
     return {"start": start, "end": end, "rows": data, "total": total, **pagination}
 
 
+def outbound_dataset(request: HttpRequest) -> Dict[str, Any]:
+    start, end = _interval_from_request(request)
+    agents = _get_param_list(request, "agents")
+    page, page_size = _pagination_params(request)
+    amap = _agent_map()
+
+    where: List[str] = ["calldate >= %s", "calldate <= %s"]
+    params: List[Any] = [start, end]
+
+    if agents:
+        agent_values = []
+        for raw in agents:
+            for alias in _agent_aliases(raw):
+                if alias not in agent_values:
+                    agent_values.append(alias)
+        if agent_values:
+            agent_clause = f"cnam IN ({','.join(['%s'] * len(agent_values))})"
+            where.append(f"({agent_clause})")
+            params.extend(agent_values)
+
+    where_sql = " AND ".join(where)
+
+    count_sql = f"SELECT COUNT(*) FROM cdr WHERE {where_sql}"
+    with connections["default"].cursor() as cursor:
+        cursor.execute(count_sql, params)
+        total = int(cursor.fetchone()[0] or 0)
+
+    pagination = _pagination_meta(request, page, page_size, total)
+    offset = (pagination["page"] - 1) * pagination["page_size"]
+
+    sql = f"""
+        SELECT calldate, uniqueid, billsec, disposition, src, dst, cnum, cnam, recordingfile
+        FROM cdr
+        WHERE {where_sql}
+        ORDER BY calldate DESC
+        LIMIT %s OFFSET %s
+    """
+    
+    overview_sql = f"""
+        SELECT
+            COALESCE(NULLIF(cnum, ''), NULLIF(cnam, ''), 'UNKNOWN') AS agent_key,
+            SUM(CASE WHEN disposition = 'ANSWERED' THEN 1 ELSE 0 END) AS answered,
+            SUM(CASE WHEN disposition = 'NO ANSWER' THEN 1 ELSE 0 END) AS no_answer,
+            SUM(CASE WHEN disposition = 'BUSY' THEN 1 ELSE 0 END) AS busy,
+            COUNT(*) AS total_count
+        FROM cdr
+        WHERE {where_sql}
+        GROUP BY agent_key
+    """
+
+    with connections["default"].cursor() as cursor:
+        cursor.execute(sql, [*params, pagination["page_size"], offset])
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+        cursor.execute(overview_sql, params)
+        overview_rows = cursor.fetchall()
+
+    data = [dict(zip(columns, row)) for row in rows]
+    for row in data:
+        operator_system = str(row.get("cnam") or "")
+        row["operator_display"] = _display_agent(operator_system, amap)
+        row["has_recording"] = bool(row.get("recordingfile"))
+
+    overview = {"ANSWERED": 0, "NO ANSWER": 0, "BUSY": 0, "TOTAL": 0}
+    for agent_key, answered, no_answer, busy, total_count in overview_rows:
+        overview["ANSWERED"] += int(answered or 0)
+        overview["NO ANSWER"] += int(no_answer or 0)
+        overview["BUSY"] += int(busy or 0)
+        overview["TOTAL"] += int(total_count or 0)
+        
+    return {
+        "start": start,
+        "end": end,
+        "rows": data,
+        "total": total,
+        "overview": overview,
+        **pagination,
+    }
+
+
 def call_detail_dataset(callid: str) -> Dict[str, Any]:
     qmap = _queue_map()
     amap = _agent_map()
@@ -571,7 +652,7 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         if queues
         else ""
     )
-    cdr_params: List[Any] = [start, end, *queues]
+    cdr_params: List[Any] = [start, end, start, end, *queues]
     sql_operator_cdr = f"""
         SELECT
             c.uniqueid,
@@ -590,6 +671,7 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
                 SUBSTRING_INDEX(GROUP_CONCAT(agent ORDER BY time DESC SEPARATOR ','), ',', 1) AS agent
             FROM queuelog
             WHERE event IN ('CONNECT', 'COMPLETECALLER', 'COMPLETEAGENT')
+              AND time >= %s AND time <= %s
               AND agent IS NOT NULL AND agent <> ''
             GROUP BY callid
         ) ql ON ql.callid = c.uniqueid

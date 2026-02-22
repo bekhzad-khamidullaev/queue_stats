@@ -34,6 +34,7 @@ from .datasets import (
     answered_dataset,
     unanswered_dataset,
     cdr_dataset,
+    outbound_dataset,
     call_detail_dataset,
     summary_dataset,
     analytics_dataset,
@@ -174,6 +175,15 @@ def report_cdr_page(request: HttpRequest) -> HttpResponse:
     context = _base_context(request)
     context.update(cdr_dataset(request))
     return render(request, "stats/reports/cdr_page.html", context)
+
+
+@login_required
+def report_outbound_page(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+    context = _base_context(request)
+    context.update(outbound_dataset(request))
+    return render(request, "stats/reports/outbound_page.html", context)
 
 
 @login_required

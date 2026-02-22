@@ -63,6 +63,7 @@
           <a href="{% url 'report-summary-page' %}" class="radix-button-secondary{% if cur == 'report-summary-page' %} active{% endif %}">{% tr "Сводка" %}</a>
           <a href="{% url 'report-answered-page' %}" class="radix-button-secondary{% if cur == 'report-answered-page' %} active{% endif %}">{% tr "Отвеченные" %}</a>
           <a href="{% url 'report-unanswered-page' %}" class="radix-button-secondary{% if cur == 'report-unanswered-page' %} active{% endif %}">{% tr "Пропущенные" %}</a>
+          <a href="{% url 'report-outbound-page' %}" class="radix-button-secondary{% if cur == 'report-outbound-page' %} active{% endif %}">{% tr "Исходящие" %}</a>
           <a href="{% url 'report-cdr-page' %}" class="radix-button-secondary{% if cur == 'report-cdr-page' %} active{% endif %}">CDR</a>
           <a href="{% url 'dashboards-page' %}" class="radix-button-secondary{% if cur == 'dashboards-page' or cur == 'dashboard-traffic-page' or cur == 'dashboard-queues-page' or cur == 'dashboard-operators-page' %} active{% endif %}">{% tr "Дашборды" %}</a>
           <a href="{% url 'analytics-page' %}" class="radix-button-secondary{% if cur == 'analytics-page' %} active{% endif %}">{% tr "Аналитика" %}</a>

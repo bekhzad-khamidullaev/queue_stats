@@ -15,6 +15,7 @@ from .datasets import (
     dashboard_queues_dataset,
     dashboard_traffic_dataset,
     unanswered_dataset,
+    outbound_dataset,
 )
 from .helpers import _user_allowed
 from .pdf_reports import draw_plots_pdf, draw_table_pdf
@@ -106,6 +107,37 @@ def export_cdr_excel(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+def export_outbound_excel(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+
+    data = outbound_dataset(request)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Outbound"
+    sheet.append(["calldate", "operator", "src", "dst", "duration", "disposition", "recordingfile"])
+    for row in data["rows"]:
+        sheet.append(
+            [
+                row.get("calldate"),
+                row.get("operator_display"),
+                row.get("src"),
+                row.get("dst"),
+                row.get("billsec"),
+                row.get("disposition"),
+                row.get("recordingfile"),
+            ]
+        )
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    response = HttpResponse(output.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = 'attachment; filename="outbound_report.xlsx"'
+    return response
+
+
+@login_required
 def export_answered_pdf(request: HttpRequest) -> HttpResponse:
     if not _user_allowed(request):
         return HttpResponse("forbidden", status=403)
@@ -162,6 +194,32 @@ def export_cdr_pdf(request: HttpRequest) -> HttpResponse:
     )
     response = HttpResponse(pdf_data, content_type="application/pdf")
     response["Content-Disposition"] = 'attachment; filename="cdr_report.pdf"'
+    return response
+
+
+@login_required
+def export_outbound_pdf(request: HttpRequest) -> HttpResponse:
+    if not _user_allowed(request):
+        return HttpResponse("forbidden", status=403)
+
+    data = outbound_dataset(request)
+    pdf_data = draw_table_pdf(
+        "Outbound Report",
+        ["calldate", "operator", "src", "dst", "duration", "disp"],
+        [
+            [
+                r.get("calldate"),
+                r.get("operator_display"),
+                r.get("src"),
+                r.get("dst"),
+                r.get("billsec"),
+                r.get("disposition"),
+            ]
+            for r in data["rows"]
+        ],
+    )
+    response = HttpResponse(pdf_data, content_type="application/pdf")
+    response["Content-Disposition"] = 'attachment; filename="outbound_report.pdf"'
     return response
 
 
