@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="${DEPLOY_HOST:-tshttaster}"
+HOST="${DEPLOY_HOST:-asterisk-root}"
 REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/opt/queue_stats}"
 SERVICE="${DEPLOY_SERVICE:-backend}"
-PORT="${DEPLOY_PORT:-8000}"
+PORT="${DEPLOY_PORT:-8443}"
 DB_HOST="${DEPLOY_DB_HOST:-}"
 DB_NAME="${DEPLOY_DB_NAME:-}"
 DB_USER="${DEPLOY_DB_USER:-}"
@@ -24,10 +24,10 @@ Usage:
   ./deploy/deploy.sh [options]
 
 Options:
-  --host <ssh_host>         SSH host alias or user@host (default: tshttaster)
+  --host <ssh_host>         SSH host alias or user@host (default: asterisk-root)
   --remote-dir <path>       Remote project directory (default: /opt/queue_stats)
   --service <name>          Compose service to build/restart (default: backend)
-  --port <port>             Host HTTP port bind + health-check port (default: 8000)
+  --port <port>             Host HTTP port bind + health-check port (default: 8443)
   --db-host <host>          Override DB_HOST for compose runtime (default: use compose value)
   --db-name <name>          Override DB_NAME for compose runtime (default: use compose value)
   --db-user <user>          Override DB_USER for compose runtime (default: use compose value)

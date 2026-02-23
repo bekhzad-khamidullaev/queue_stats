@@ -552,23 +552,20 @@ def _build_ami_snapshot(
     channel_filter = (_snapshot_filter_value("channel") or "").strip().lower()
     caller_filter = (_snapshot_filter_value("caller") or "").strip().lower()
 
-    settings = GeneralSettings.objects.first()
-    if not settings or not settings.ami_host:
-        return {
-            "queue_summary": [],
-            "active_calls": [],
-            "active_calls_count": 0,
-            "waiting_calls_count": 0,
-            "active_operators_count": 0,
-            "ami_error": i18n_tr("AMI не настроен"),
-        }
-
+    from django.conf import settings
+    db_settings = GeneralSettings.objects.first()
+    
     if manager is None:
+        host = db_settings.ami_host if db_settings and db_settings.ami_host != 'localhost' else getattr(settings, 'ASTERISK_AMI_HOST', '127.0.0.1')
+        port = db_settings.ami_port if db_settings and db_settings.ami_port != 5038 else getattr(settings, 'ASTERISK_AMI_PORT', 5038)
+        user = db_settings.ami_user if db_settings and db_settings.ami_user != 'admin' else getattr(settings, 'ASTERISK_AMI_USER', 'admin')
+        password = db_settings.ami_password if db_settings and db_settings.ami_password else getattr(settings, 'ASTERISK_AMI_PASSWORD', '')
+
         manager = AMIManager(
-            host=settings.ami_host,
-            port=settings.ami_port,
-            username=settings.ami_user,
-            secret=settings.ami_password,
+            host=host,
+            port=port,
+            username=user,
+            secret=password,
         )
 
         if not manager.connect():

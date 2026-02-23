@@ -13,15 +13,20 @@ from .ami_integration import AMIEvent, AMIManager
 
 def _get_ami_manager() -> AMIManager:
     """Get configured AMI manager instance"""
-    settings = GeneralSettings.objects.first()
-    if not settings or not settings.ami_host:
-        raise ValueError("AMI settings not configured")
+    from django.conf import settings
+    db_settings = GeneralSettings.objects.first()
     
+    # Use DB settings if available, otherwise fallback to settings.py (which pulls from .env)
+    host = db_settings.ami_host if db_settings and db_settings.ami_host != 'localhost' else getattr(settings, 'ASTERISK_AMI_HOST', '127.0.0.1')
+    port = db_settings.ami_port if db_settings and db_settings.ami_port != 5038 else getattr(settings, 'ASTERISK_AMI_PORT', 5038)
+    user = db_settings.ami_user if db_settings and db_settings.ami_user != 'admin' else getattr(settings, 'ASTERISK_AMI_USER', 'admin')
+    password = db_settings.ami_password if db_settings and db_settings.ami_password else getattr(settings, 'ASTERISK_AMI_PASSWORD', '')
+
     return AMIManager(
-        host=settings.ami_host,
-        port=settings.ami_port,
-        username=settings.ami_user,
-        secret=settings.ami_password
+        host=host,
+        port=port,
+        username=user,
+        secret=password
     )
 
 
