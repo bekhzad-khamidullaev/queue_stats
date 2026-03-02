@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from typing import Any, Dict, List
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -41,6 +42,18 @@ def answered_dataset(request: HttpRequest) -> Dict[str, Any]:
     page, page_size = _pagination_params(request)
     rows, total = _fetch_queuelog_page(start, end, queues, agents, ["COMPLETECALLER", "COMPLETEAGENT"], page, page_size)
     caller_map = _caller_map_by_callids([str(r.get("callid") or "") for r in rows])
+    recording_map: Dict[str, bool] = {}
+    callids = [str(r.get("callid") or "") for r in rows if str(r.get("callid") or "")]
+    if callids:
+        placeholders = ",".join(["%s"] * len(callids))
+        with connections["default"].cursor() as cursor:
+            cursor.execute(
+                f"SELECT uniqueid, recordingfile FROM cdr WHERE uniqueid IN ({placeholders})",
+                callids,
+            )
+            for uniqueid, recordingfile in cursor.fetchall():
+                recording_map[str(uniqueid)] = bool(recordingfile)
+
     flat_rows: List[Dict[str, Any]] = []
     for row in rows:
         callid = str(row.get("callid") or "")
@@ -57,6 +70,7 @@ def answered_dataset(request: HttpRequest) -> Dict[str, Any]:
                 "agent_display": _display_agent(agent, amap),
                 "hold": int(row.get("data1") or 0),
                 "talk": int(row.get("data2") or 0),
+                "has_recording": bool(recording_map.get(callid, False)),
             }
         )
 
@@ -572,21 +586,99 @@ def _bar_chart(items: List[Dict[str, Any]], label_key: str, value_key: str, max_
         )
     return {"w": width, "h": height, "bars": bars, "max_value": round(max_value, 2)}
 
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _daily_series_with_gaps(
+    raw_rows: List[Dict[str, Any]],
+    start,
+    end,
+    max_days: int = 366,
+) -> List[Dict[str, Any]]:
+    day_map: Dict[str, Dict[str, Any]] = {str(row.get("day")): row for row in raw_rows}
+    span_days = (end.date() - start.date()).days + 1
+    if span_days <= 0 or span_days > max_days:
+        return raw_rows
+
+    rows: List[Dict[str, Any]] = []
+    cursor = start.date()
+    last_day = end.date()
+    while cursor <= last_day:
+        day_key = cursor.isoformat()
+        source = day_map.get(day_key, {})
+        rows.append(
+            {
+                "day": day_key,
+                "answered": _safe_int(source.get("answered")),
+                "abandoned": _safe_int(source.get("abandoned")),
+                "timeout": _safe_int(source.get("timeout")),
+                "unanswered": _safe_int(source.get("unanswered")),
+            }
+        )
+        cursor += timedelta(days=1)
+    return rows
+
+
+def _hourly_series_with_gaps(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    by_hour = {int(row.get("hour")): row for row in raw_rows if row.get("hour") is not None}
+    rows: List[Dict[str, Any]] = []
+    for hour in range(24):
+        source = by_hour.get(hour, {})
+        rows.append(
+            {
+                "hour": hour,
+                "answered": _safe_int(source.get("answered")),
+                "unanswered": _safe_int(source.get("unanswered")),
+            }
+        )
+    return rows
+
+
+def _percent_delta(current: int | float, previous: int | float) -> float:
+    if not previous:
+        return 0.0
+    return round((float(current) - float(previous)) * 100 / float(previous), 2)
+
+
 def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
     start, end = _interval_from_request(request)
     queues = _get_param_list(request, "queues")
     agents = _get_param_list(request, "agents")
     qmap = _queue_map()
     amap = _agent_map()
+    general = _get_general_settings()
+    sla_target_wait_seconds = _safe_int(general.sla_target_wait_seconds) or 20
+    sla_target_percent = float(general.sla_target_percent or 80)
     queue_clause = ""
     agent_clause = ""
+    agent_filter_values: List[str] = []
+    for raw in agents:
+        for alias in _agent_aliases(raw):
+            if alias and alias not in agent_filter_values:
+                agent_filter_values.append(alias)
+    agent_callid_clause = ""
     if queues:
         queue_clause = f" AND queuename IN ({','.join(['%s'] * len(queues))})"
-    if agents:
-        agent_clause = f" AND agent IN ({','.join(['%s'] * len(agents))})"
+    if agent_filter_values:
+        placeholders = ",".join(["%s"] * len(agent_filter_values))
+        agent_clause = f" AND agent IN ({placeholders})"
+        agent_callid_clause = f"""
+          AND EXISTS (
+              SELECT 1
+              FROM queuelog qa
+              WHERE qa.callid = queuelog.callid
+                AND qa.event IN ('CONNECT','COMPLETECALLER','COMPLETEAGENT')
+                AND qa.agent IN ({placeholders})
+          )
+        """
 
-    queue_params: List[Any] = [start, end, *queues]
-    queue_agent_params: List[Any] = [start, end, *queues, *agents]
+    queue_params: List[Any] = [start, end, *queues, *agent_filter_values]
+    queue_agent_params: List[Any] = [start, end, *queues, *agent_filter_values]
 
     sql_daily = f"""
         SELECT DATE(time) AS day,
@@ -595,7 +687,7 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
                SUM(CASE WHEN event = 'EXITWITHTIMEOUT' THEN 1 ELSE 0 END) AS timeout,
                SUM(CASE WHEN event IN ('ABANDON','EXITWITHTIMEOUT') THEN 1 ELSE 0 END) AS unanswered
         FROM queuelog
-        WHERE time >= %s AND time <= %s {queue_clause}
+        WHERE time >= %s AND time <= %s {queue_clause} {agent_callid_clause}
         GROUP BY day
         ORDER BY day
     """
@@ -605,7 +697,7 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
                SUM(CASE WHEN event IN ('COMPLETECALLER','COMPLETEAGENT') THEN 1 ELSE 0 END) AS answered,
                SUM(CASE WHEN event IN ('ABANDON','EXITWITHTIMEOUT') THEN 1 ELSE 0 END) AS unanswered
         FROM queuelog
-        WHERE time >= %s AND time <= %s {queue_clause}
+        WHERE time >= %s AND time <= %s {queue_clause} {agent_callid_clause}
         GROUP BY hour
         ORDER BY hour
     """
@@ -619,7 +711,7 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
                SUM(CASE WHEN event IN ('COMPLETECALLER','COMPLETEAGENT') THEN CAST(data2 AS UNSIGNED) ELSE 0 END) AS talk_sec,
                SUM(CASE WHEN event IN ('ABANDON','EXITWITHTIMEOUT') THEN 1 ELSE 0 END) AS unanswered
         FROM queuelog
-        WHERE time >= %s AND time <= %s {queue_clause}
+        WHERE time >= %s AND time <= %s {queue_clause} {agent_callid_clause}
         GROUP BY queuename
         ORDER BY answered DESC
         LIMIT 200
@@ -640,6 +732,42 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         LIMIT 200
     """
 
+    sql_sla_current = f"""
+        SELECT
+            SUM(CASE WHEN event IN ('COMPLETECALLER','COMPLETEAGENT') THEN 1 ELSE 0 END) AS answered_total,
+            SUM(
+                CASE
+                    WHEN event IN ('COMPLETECALLER','COMPLETEAGENT')
+                         AND CAST(COALESCE(NULLIF(data1, ''), '0') AS UNSIGNED) <= %s
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS answered_in_sla
+        FROM queuelog
+        WHERE time >= %s AND time <= %s {queue_clause} {agent_callid_clause}
+    """
+
+    period_delta = end - start
+    prev_end = start - timedelta(seconds=1)
+    prev_start = prev_end - period_delta
+    prev_params: List[Any] = [prev_start, prev_end, *queues, *agent_filter_values]
+    sql_prev_totals = f"""
+        SELECT
+            SUM(CASE WHEN event IN ('COMPLETECALLER','COMPLETEAGENT') THEN 1 ELSE 0 END) AS answered,
+            SUM(CASE WHEN event = 'ABANDON' THEN 1 ELSE 0 END) AS abandoned,
+            SUM(CASE WHEN event = 'EXITWITHTIMEOUT' THEN 1 ELSE 0 END) AS timeout,
+            SUM(
+                CASE
+                    WHEN event IN ('COMPLETECALLER','COMPLETEAGENT')
+                         AND CAST(COALESCE(NULLIF(data1, ''), '0') AS UNSIGNED) <= %s
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS answered_in_sla
+        FROM queuelog
+        WHERE time >= %s AND time <= %s {queue_clause} {agent_callid_clause}
+    """
+
     queue_clause_q = f" AND q.queuename IN ({','.join(['%s'] * len(queues))})" if queues else ""
     caller_agent_clause = (
         f"""
@@ -647,14 +775,14 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
             SELECT 1
             FROM queuelog qa
             WHERE qa.callid = q.callid
-              AND qa.event IN ('COMPLETECALLER','COMPLETEAGENT')
-              AND qa.agent IN ({','.join(['%s'] * len(agents))})
+              AND qa.event IN ('CONNECT','COMPLETECALLER','COMPLETEAGENT')
+              AND qa.agent IN ({','.join(['%s'] * len(agent_filter_values))})
         )
         """
-        if agents
+        if agent_filter_values
         else ""
     )
-    caller_params: List[Any] = [start, end, *queues, *agents]
+    caller_params: List[Any] = [start, end, *queues, *agent_filter_values]
     sql_top_callers = f"""
         SELECT TRIM(q.data2) AS caller, COUNT(DISTINCT q.callid) AS calls
         FROM queuelog q
@@ -682,7 +810,20 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         if queues
         else ""
     )
-    cdr_params: List[Any] = [start, end, start, end, *queues]
+    cdr_agent_clause = (
+        f"""
+        AND EXISTS (
+            SELECT 1
+            FROM queuelog qfa
+            WHERE qfa.callid = c.uniqueid
+              AND qfa.event IN ('CONNECT', 'COMPLETECALLER', 'COMPLETEAGENT')
+              AND qfa.agent IN ({','.join(['%s'] * len(agent_filter_values))})
+        )
+        """
+        if agent_filter_values
+        else ""
+    )
+    cdr_params: List[Any] = [start, end, start, end, *queues, *agent_filter_values]
     sql_operator_cdr = f"""
         SELECT
             c.uniqueid,
@@ -707,6 +848,7 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         ) ql ON ql.callid = c.uniqueid
         WHERE c.calldate >= %s AND c.calldate <= %s
           {cdr_queue_clause}
+          {cdr_agent_clause}
         ORDER BY c.calldate ASC
         LIMIT 50000
     """
@@ -724,17 +866,28 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         cursor.execute(sql_agents, queue_agent_params)
         top_agents = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
 
+        cursor.execute(sql_sla_current, [sla_target_wait_seconds, start, end, *queues, *agent_filter_values])
+        current_sla_row = dict(zip([c[0] for c in cursor.description], cursor.fetchone() or []))
+
+        cursor.execute(sql_prev_totals, [sla_target_wait_seconds, *prev_params])
+        prev_totals_row = dict(zip([c[0] for c in cursor.description], cursor.fetchone() or []))
+
         cursor.execute(sql_top_callers, caller_params)
         top_callers = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
 
         cursor.execute(sql_operator_cdr, cdr_params)
         operator_cdr_rows = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
 
-    total_answered = sum(int(x.get("answered") or 0) for x in daily)
-    total_abandoned = sum(int(x.get("abandoned") or 0) for x in daily)
-    total_timeout = sum(int(x.get("timeout") or 0) for x in daily)
+    daily = _daily_series_with_gaps(daily, start, end)
+    hourly = _hourly_series_with_gaps(hourly)
+
+    total_answered = sum(_safe_int(x.get("answered")) for x in daily)
+    total_abandoned = sum(_safe_int(x.get("abandoned")) for x in daily)
+    total_timeout = sum(_safe_int(x.get("timeout")) for x in daily)
     total_unanswered = total_abandoned + total_timeout
     total_calls = total_answered + total_unanswered
+    answered_in_sla = _safe_int(current_sla_row.get("answered_in_sla"))
+    kpi_sla_by_target = round(answered_in_sla * 100 / total_answered, 2) if total_answered else 0
 
     sum_hold_answered = sum(int(x.get("hold_sec") or 0) for x in per_queue)
     sum_talk_answered = sum(int(x.get("talk_sec") or 0) for x in per_queue)
@@ -889,20 +1042,38 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
 
     daily_chart_input: List[Dict[str, Any]] = []
     for row in daily:
+        total_day = int(row.get("answered") or 0) + int(row.get("unanswered") or 0)
         daily_chart_input.append(
             {
                 "day": row.get("day"),
-                "total": int(row.get("answered") or 0) + int(row.get("unanswered") or 0),
+                "total": total_day,
             }
         )
     hourly_chart_input: List[Dict[str, Any]] = []
     for row in hourly:
+        total_hour = int(row.get("answered") or 0) + int(row.get("unanswered") or 0)
         hourly_chart_input.append(
             {
                 "hour": row.get("hour"),
-                "total": int(row.get("answered") or 0) + int(row.get("unanswered") or 0),
+                "total": total_hour,
             }
         )
+
+    peak_day = max(daily_chart_input, key=lambda item: item.get("total") or 0, default={})
+    peak_hour = max(hourly_chart_input, key=lambda item: item.get("total") or 0, default={})
+
+    prev_answered = _safe_int(prev_totals_row.get("answered"))
+    prev_abandoned = _safe_int(prev_totals_row.get("abandoned"))
+    prev_timeout = _safe_int(prev_totals_row.get("timeout"))
+    prev_total = prev_answered + prev_abandoned + prev_timeout
+    prev_unanswered = prev_abandoned + prev_timeout
+    prev_answered_in_sla = _safe_int(prev_totals_row.get("answered_in_sla"))
+    prev_sla_by_target = round(prev_answered_in_sla * 100 / prev_answered, 2) if prev_answered else 0
+
+    delta_total = total_calls - prev_total
+    delta_answered = total_answered - prev_answered
+    delta_unanswered = total_unanswered - prev_unanswered
+    delta_sla_by_target = round(kpi_sla_by_target - prev_sla_by_target, 2)
 
     for row in top_callers:
         row["caller"] = str(row.get("caller") or "").strip()
@@ -919,6 +1090,11 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         "kpi_sla": round(total_answered * 100 / total_calls, 2) if total_calls else 0,
         "kpi_abandon_rate": round(total_abandoned * 100 / total_calls, 2) if total_calls else 0,
         "kpi_timeout_rate": round(total_timeout * 100 / total_calls, 2) if total_calls else 0,
+        "kpi_sla_by_target": kpi_sla_by_target,
+        "kpi_sla_target_percent": round(sla_target_percent, 2),
+        "kpi_sla_target_wait_seconds": sla_target_wait_seconds,
+        "kpi_sla_gap_to_target": round(kpi_sla_by_target - sla_target_percent, 2),
+        "kpi_answered_in_sla": answered_in_sla,
         "kpi_avg_hold": round(sum_hold_answered / total_answered, 2) if total_answered else 0,
         "kpi_avg_talk": round(sum_talk_answered / total_answered, 2) if total_answered else 0,
         "kpi_aht": round((sum_hold_answered + sum_talk_answered) / total_answered, 2) if total_answered else 0,
@@ -929,6 +1105,23 @@ def analytics_dataset(request: HttpRequest) -> Dict[str, Any]:
         "kpi_outgoing_talk_min": round(total_outgoing_talk_sec / 60, 2),
         "kpi_incoming_calls": total_incoming_calls,
         "kpi_outgoing_calls": total_outgoing_calls,
+        "kpi_peak_day": peak_day.get("day", "-"),
+        "kpi_peak_day_calls": peak_day.get("total", 0),
+        "kpi_peak_hour": peak_hour.get("hour", "-"),
+        "kpi_peak_hour_calls": peak_hour.get("total", 0),
+        "kpi_prev_total": prev_total,
+        "kpi_prev_answered": prev_answered,
+        "kpi_prev_unanswered": prev_unanswered,
+        "kpi_prev_sla_by_target": prev_sla_by_target,
+        "kpi_delta_total": delta_total,
+        "kpi_delta_total_percent": _percent_delta(total_calls, prev_total),
+        "kpi_delta_answered": delta_answered,
+        "kpi_delta_answered_percent": _percent_delta(total_answered, prev_answered),
+        "kpi_delta_unanswered": delta_unanswered,
+        "kpi_delta_unanswered_percent": _percent_delta(total_unanswered, prev_unanswered),
+        "kpi_delta_sla_by_target": delta_sla_by_target,
+        "kpi_prev_interval_start": prev_start,
+        "kpi_prev_interval_end": prev_end,
         "daily": daily,
         "hourly": hourly,
         "per_queue": per_queue,

@@ -5,7 +5,6 @@ from typing import Any, Dict
 
 from django.contrib.auth import authenticate, login, logout
 from django.http import HttpRequest, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .models import User, UserRoles
@@ -36,7 +35,14 @@ def _user_payload(user: User) -> Dict[str, Any]:
     }
 
 
-@csrf_exempt
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @require_http_methods(["POST"])
 def login_view(request: HttpRequest) -> JsonResponse:
     payload = _read_payload(request)
@@ -51,7 +57,6 @@ def login_view(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"user": _user_payload(user)})
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 def logout_view(request: HttpRequest) -> JsonResponse:
     logout(request)
@@ -65,7 +70,6 @@ def me_view(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"user": _user_payload(request.user)})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN)
 def users_collection(request: HttpRequest) -> JsonResponse:
@@ -93,13 +97,12 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         first_name=payload.get("first_name", ""),
         last_name=payload.get("last_name", ""),
         email=payload.get("email", ""),
-        is_superuser=payload.get("is_superuser", False),
-        is_staff=payload.get("is_staff", role == UserRoles.ADMIN),
+        is_superuser=_as_bool(payload.get("is_superuser"), default=False),
+        is_staff=_as_bool(payload.get("is_staff"), default=(role == UserRoles.ADMIN)),
     )
     return JsonResponse({"user": _user_payload(user)}, status=201)
 
 
-@csrf_exempt
 @require_http_methods(["PATCH", "DELETE"])
 @require_roles(UserRoles.ADMIN)
 def users_detail(request: HttpRequest, user_id: int) -> JsonResponse:
@@ -133,10 +136,10 @@ def users_detail(request: HttpRequest, user_id: int) -> JsonResponse:
         user.role = role
         updated = True
     if "is_staff" in payload:
-        user.is_staff = bool(payload["is_staff"])
+        user.is_staff = _as_bool(payload["is_staff"])
         updated = True
     if "is_superuser" in payload:
-        user.is_superuser = bool(payload["is_superuser"])
+        user.is_superuser = _as_bool(payload["is_superuser"])
         updated = True
     if "password" in payload and payload["password"]:
         user.set_password(payload["password"])
@@ -146,4 +149,3 @@ def users_detail(request: HttpRequest, user_id: int) -> JsonResponse:
         user.save()
 
     return JsonResponse({"user": _user_payload(user)})
-

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import socket
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List
@@ -9,7 +8,6 @@ from typing import Any, Dict, Iterable, List
 import requests
 from django.db import connections
 from django.http import FileResponse, Http404, HttpRequest, JsonResponse, StreamingHttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from accounts.models import UserRoles
@@ -33,7 +31,11 @@ def _parse_request_payload(request: HttpRequest) -> JsonDict:
         except json.JSONDecodeError:
             return {}
     if request.GET:
-        return request.GET.dict()
+        payload: JsonDict = {}
+        for key in request.GET.keys():
+            values = request.GET.getlist(key)
+            payload[key] = values if len(values) > 1 else values[0]
+        return payload
     return {}
 
 
@@ -116,7 +118,6 @@ def _fetch_queuelog_rows(
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def answered_report(request: HttpRequest) -> JsonResponse:
@@ -220,7 +221,6 @@ def answered_report(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def unanswered_report(request: HttpRequest) -> JsonResponse:
@@ -306,7 +306,6 @@ def unanswered_report(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def distribution_report(request: HttpRequest) -> JsonResponse:
@@ -342,7 +341,6 @@ def distribution_report(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"timeline": timeline_data, "agent_calls": dict(agent_calls)})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def raw_events(request: HttpRequest) -> JsonResponse:
@@ -378,14 +376,12 @@ def raw_events(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"events": records, "pagination": _pagination_meta(total, page, page_size)})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def raw_events_legacy(request: HttpRequest) -> JsonResponse:
     return raw_events(request)
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def summary_report(request: HttpRequest) -> JsonResponse:
@@ -437,7 +433,6 @@ def summary_report(request: HttpRequest) -> JsonResponse:
     }
     return JsonResponse({"summary": summary})
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def answered_cdr_report(request: HttpRequest) -> JsonResponse:
@@ -480,7 +475,6 @@ def answered_cdr_report(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"data": data, "pagination": _pagination_meta(total, page, page_size)})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def unanswered_cdr_report(request: HttpRequest) -> JsonResponse:
@@ -563,7 +557,6 @@ def unanswered_cdr_report(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"data": page_records, "pagination": _pagination_meta(total, page, page_size)})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def outbound_report(request: HttpRequest) -> JsonResponse:
@@ -630,7 +623,6 @@ def outbound_report(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"data": records, "overview": overview, "pagination": _pagination_meta(total, page, page_size)})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def dids_report(request: HttpRequest) -> JsonResponse:
@@ -686,7 +678,6 @@ def dids_report(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"data": result})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def trunks_report(request: HttpRequest) -> JsonResponse:
@@ -740,7 +731,6 @@ def trunks_report(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"data": result})
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def queue_search(request: HttpRequest) -> JsonResponse:
@@ -798,7 +788,6 @@ def queue_search(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def sla_report(request: HttpRequest) -> JsonResponse:
@@ -851,7 +840,6 @@ def sla_report(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def volume_report(request: HttpRequest) -> JsonResponse:
@@ -932,7 +920,6 @@ def volume_report(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def agent_performance_report(request: HttpRequest) -> JsonResponse:
@@ -1016,7 +1003,6 @@ def agent_performance_report(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def areport_legacy(request: HttpRequest) -> JsonResponse:
@@ -1146,7 +1132,6 @@ def areport_legacy(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST)
 def qreport_legacy(request: HttpRequest) -> JsonResponse:
@@ -1214,20 +1199,33 @@ def qreport_legacy(request: HttpRequest) -> JsonResponse:
 
 
 def _ami_response(action: str, **params: Any) -> Dict[str, Any]:
-    general_settings = GeneralSettings.objects.first()
-    if not general_settings or not general_settings.ami_host:
-        return {"error": "AMI settings not configured in admin panel."}
+    from django.conf import settings as django_settings
+
+    db_settings = GeneralSettings.objects.first()
+    host = db_settings.ami_host if db_settings and db_settings.ami_host else getattr(django_settings, "ASTERISK_AMI_HOST", "")
+    port = db_settings.ami_port if db_settings else int(getattr(django_settings, "ASTERISK_AMI_PORT", 5038))
+    username = db_settings.ami_user if db_settings and db_settings.ami_user else getattr(django_settings, "ASTERISK_AMI_USER", "")
+    secret = db_settings.ami_password if db_settings and db_settings.ami_password else getattr(django_settings, "ASTERISK_AMI_PASSWORD", "")
+
+    if not host:
+        return {"error": "AMI settings not configured in admin panel.", "action": action}
+
+    manager = AMIManager(host=host, port=port, username=username, secret=secret)
+    if not manager.connect():
+        return {"error": "Failed to connect to AMI", "action": action}
 
     try:
-        with AmiClient(
-            host=general_settings.ami_host,
-            port=general_settings.ami_port,
-            username=general_settings.ami_user,
-            secret=general_settings.ami_password,
-        ) as client:
-            return client.send_action(action, **params)
-    except (socket.error, ConnectionRefusedError, Exception) as exc:
+        if action == "CoreShowChannels":
+            return manager.core_show_channels()
+        if action == "QueueStatus":
+            return manager.queue_status(queue=params.get("queue"), member=params.get("member"))
+        if action == "QueueSummary":
+            return manager.queue_summary(queue=params.get("queue"))
+        return {"error": f"Unsupported AMI action: {action}", "action": action}
+    except Exception as exc:
         return {"error": str(exc), "action": action}
+    finally:
+        manager.disconnect()
 
 
 @require_GET

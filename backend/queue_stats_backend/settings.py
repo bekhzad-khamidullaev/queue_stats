@@ -6,13 +6,15 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from django.core.management.utils import get_random_secret_key
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Core --------------------------------------------------------------------
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", get_random_secret_key())
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if os.getenv("DJANGO_ENV") == "production":
+        raise RuntimeError("DJANGO_SECRET_KEY must be set in production")
+    SECRET_KEY = "django-insecure-dev-only-change-me"
 DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
 
 ALLOWED_HOSTS: list[str] = [
@@ -192,6 +194,7 @@ ASTERISK_AMI_HOST = os.getenv("ASTERISK_AMI_HOST", "127.0.0.1")
 ASTERISK_AMI_PORT = int(os.getenv("ASTERISK_AMI_PORT", 5038))
 ASTERISK_AMI_USER = os.getenv("ASTERISK_AMI_USER", "admin")
 ASTERISK_AMI_PASSWORD = os.getenv("ASTERISK_AMI_PASSWORD", "")
+ASTERISK_BLACKLIST_SQLITE_PATH = os.getenv("ASTERISK_BLACKLIST_SQLITE_PATH", "/var/lib/asterisk/astdb.sqlite3")
 
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"

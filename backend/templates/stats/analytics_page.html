@@ -32,19 +32,56 @@
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Unanswered</p><p class="text-2xl font-semibold">{{ kpi_unanswered }}</p></div>
 </section>
 
-<section class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+<section class="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">SLA</p><p class="text-2xl font-semibold">{{ kpi_sla }}%</p></div>
+  <div class="radix-card p-4">
+    <p class="text-slate-400 text-sm">SLA <= {{ kpi_sla_target_wait_seconds }}s</p>
+    <p class="text-2xl font-semibold">{{ kpi_sla_by_target }}%</p>
+  </div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Abandon rate</p><p class="text-2xl font-semibold">{{ kpi_abandon_rate }}%</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Timeout rate</p><p class="text-2xl font-semibold">{{ kpi_timeout_rate }}%</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg hold</p><p class="text-2xl font-semibold">{{ kpi_avg_hold }}s</p></div>
-  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg talk</p><p class="text-2xl font-semibold">{{ kpi_avg_talk }}s</p></div>
+  <div class="radix-card p-4">
+    <p class="text-slate-400 text-sm">SLA target gap</p>
+    <p class="text-2xl font-semibold {% if kpi_sla_gap_to_target < 0 %}text-red-300{% else %}text-green-300{% endif %}">
+      {{ kpi_sla_gap_to_target }} pp
+    </p>
+  </div>
 </section>
 
-<section class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+<section class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+  <div class="radix-card p-4"><p class="text-slate-400 text-sm">Avg talk</p><p class="text-2xl font-semibold">{{ kpi_avg_talk }}s</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">AHT</p><p class="text-2xl font-semibold">{{ kpi_aht }}s</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Total talk</p><p class="text-2xl font-semibold">{{ kpi_total_talk_min }} min</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Active queues</p><p class="text-2xl font-semibold">{{ kpi_active_queues }}</p></div>
   <div class="radix-card p-4"><p class="text-slate-400 text-sm">Active agents</p><p class="text-2xl font-semibold">{{ kpi_active_agents }}</p></div>
+</section>
+
+<section class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
+  <div class="radix-card p-4">
+    <p class="text-slate-400 text-sm">Prev period total delta</p>
+    <p class="text-2xl font-semibold {% if kpi_delta_total < 0 %}text-red-300{% else %}text-green-300{% endif %}">
+      {{ kpi_delta_total }}
+    </p>
+    <p class="text-xs text-slate-400">{{ kpi_delta_total_percent }}% vs prev</p>
+  </div>
+  <div class="radix-card p-4">
+    <p class="text-slate-400 text-sm">Prev period answered delta</p>
+    <p class="text-2xl font-semibold {% if kpi_delta_answered < 0 %}text-red-300{% else %}text-green-300{% endif %}">
+      {{ kpi_delta_answered }}
+    </p>
+    <p class="text-xs text-slate-400">{{ kpi_delta_answered_percent }}% vs prev</p>
+  </div>
+  <div class="radix-card p-4">
+    <p class="text-slate-400 text-sm">Peak day</p>
+    <p class="text-xl font-semibold">{{ kpi_peak_day }}</p>
+    <p class="text-xs text-slate-400">{{ kpi_peak_day_calls }} calls</p>
+  </div>
+  <div class="radix-card p-4">
+    <p class="text-slate-400 text-sm">Peak hour</p>
+    <p class="text-xl font-semibold">{{ kpi_peak_hour }}:00</p>
+    <p class="text-xs text-slate-400">{{ kpi_peak_hour_calls }} calls</p>
+  </div>
 </section>
 
 <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">

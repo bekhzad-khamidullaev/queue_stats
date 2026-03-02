@@ -15,6 +15,7 @@ from django.http import HttpRequest, Http404
 from settings.models import GeneralSettings
 from .i18n_map import tr as i18n_tr
 from .utils import to_int
+from urllib.parse import unquote
 
 
 logger = logging.getLogger(__name__)
@@ -511,7 +512,8 @@ def _recording_file_by_uniqueid(uniqueid: str) -> str:
         row = cursor.fetchone()
     if not row or not row[0]:
         raise Http404("Recording not found")
-    return str(row[0])
+    value = str(row[0]).strip().strip("\"'")
+    return unquote(value)
 
 
 def _resolve_recording_local_path(recording_path: str) -> Path | None:
@@ -520,14 +522,26 @@ def _resolve_recording_local_path(recording_path: str) -> Path | None:
     logger = logging.getLogger(__name__)
 
     candidates: List[Path] = []
-    raw = Path(recording_path)
+    raw_value = unquote(str(recording_path or "").strip().strip("\"'"))
+    if not raw_value:
+        return None
+    raw = Path(raw_value)
     if raw.is_absolute():
         candidates.append(raw)
     monitor_base = Path(getattr(django_settings, "ASTERISK_MONITOR_PATH", "/var/spool/asterisk/monitor/"))
-    candidates.append(monitor_base / recording_path)
+    candidates.append(monitor_base / raw_value)
     candidates.append(monitor_base / raw.name)
 
-    for path in candidates:
+    extension_variants = ("", ".wav", ".WAV", ".mp3", ".MP3", ".gsm", ".GSM")
+    expanded_candidates: List[Path] = []
+    for base_path in candidates:
+        if base_path.suffix:
+            expanded_candidates.append(base_path)
+        else:
+            for ext in extension_variants:
+                expanded_candidates.append(base_path if not ext else Path(f"{base_path}{ext}"))
+
+    for path in expanded_candidates:
         try:
             resolved = path.resolve()
             if resolved.is_file():
@@ -535,6 +549,16 @@ def _resolve_recording_local_path(recording_path: str) -> Path | None:
         except Exception as exc:
             logger.debug("Could not resolve candidate path %s: %s", path, exc)
             continue
+
+    # Fallback: if CDR contains only stem/uniqueid-like value, search by basename pattern.
+    try:
+        stem = raw.stem if raw.suffix else raw.name
+        if stem:
+            for found in monitor_base.rglob(f"{stem}*"):
+                if found.is_file():
+                    return found.resolve()
+    except Exception as exc:
+        logger.debug("Fallback glob search failed for %s: %s", raw_value, exc)
     return None
 
 
@@ -681,4 +705,3 @@ def _transcribe_call(callid: str) -> tuple[bool, str]:
     transcription.error_message = error_message
     transcription.save(update_fields=["status", "error_message", "updated_at"])
     return False, error_message
-

@@ -10,12 +10,12 @@
   </div>
   <div class="overflow-auto max-h-96">
     <table class="radix-table">
-      <thead><tr><th>Time</th><th>Caller</th><th>Queue</th><th>Operator</th><th>Hold</th><th>Talk</th></tr></thead>
+      <thead><tr><th>Time</th><th>Caller</th><th>Queue</th><th>Operator</th><th>Hold</th><th>Talk</th><th>{% tr "Прослушивание" %}</th></tr></thead>
       <tbody>
       {% for row in rows %}
-        <tr class="call-row-hover"><td><a class="call-link" href="{% url 'call-detail-page' row.callid %}">{{ row.time }}</a></td><td>{{ row.caller }}</td><td>{{ row.queue_display }}</td><td>{{ row.agent_display }}</td><td>{{ row.hold }}</td><td>{{ row.talk }}</td></tr>
+        <tr class="call-row-hover"><td><a class="call-link" href="{% url 'call-detail-page' row.callid %}">{{ row.time }}</a></td><td>{{ row.caller }}</td><td>{{ row.queue_display }}</td><td>{{ row.agent_display }}</td><td>{{ row.hold }}</td><td>{{ row.talk }}</td><td>{% if row.has_recording %}<audio controls preload="none" controlslist="nodownload noplaybackrate" class="max-w-44"><source src="{% url 'recording-stream' row.callid %}" /></audio>{% else %}<span class="text-slate-500">{% tr "Нет" %}</span>{% endif %}</td></tr>
       {% empty %}
-        <tr><td colspan="6">{% tr "Нет данных" %}</td></tr>
+        <tr><td colspan="7">{% tr "Нет данных" %}</td></tr>
       {% endfor %}
       </tbody>
     </table>

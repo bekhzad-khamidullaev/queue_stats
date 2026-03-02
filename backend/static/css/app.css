@@ -129,6 +129,38 @@
   color: #93c5fd;
 }
 
+.top-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+
+.top-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex: 1 1 auto;
+}
+
+.top-nav-links .radix-button-secondary {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.top-nav-logout {
+  flex: 0 0 auto;
+}
+
+.top-nav-logout .radix-button {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+}
+
 [data-theme="light"] .radix-button-secondary.active {
   background: rgba(37, 99, 235, 0.1);
   border-color: var(--blue-500);

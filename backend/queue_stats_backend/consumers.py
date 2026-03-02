@@ -7,10 +7,12 @@ from channels.generic.websocket import AsyncWebsocketConsumer, WebsocketConsumer
 from channels.layers import get_channel_layer
 from django.http import QueryDict
 from django.template.loader import render_to_string
+from accounts.models import UserRoles
 from settings.models import GeneralSettings
 from stats.ami_integration import AMIEvent, AMIManager, _build_ami_snapshot
 
 logger = logging.getLogger(__name__)
+ALLOWED_REALTIME_ROLES = {UserRoles.ADMIN, UserRoles.SUPERVISOR, UserRoles.ANALYST, UserRoles.AGENT}
 
 
 class RealtimeConsumer(WebsocketConsumer):
@@ -21,6 +23,13 @@ class RealtimeConsumer(WebsocketConsumer):
     group_name = "ami_realtime"
 
     def connect(self):
+        user = self.scope.get("user")
+        if not user or not user.is_authenticated:
+            self.close(code=4401)
+            return
+        if getattr(user, "role", "") not in ALLOWED_REALTIME_ROLES:
+            self.close(code=4403)
+            return
         async_to_sync(self.channel_layer.group_add)(self.group_name, self.channel_name)
         self.accept()
         self.send(text_data=json.dumps({"type": "connection", "message": "Connected"}))
@@ -85,8 +94,12 @@ class HtmxRealtimeConsumer(AsyncWebsocketConsumer):
     """WebSocket consumer that streams HTML OOB fragments for HTMX dashboard."""
 
     async def connect(self):
-        if not self.scope.get("user") or not self.scope["user"].is_authenticated:
+        user = self.scope.get("user")
+        if not user or not user.is_authenticated:
             await self.close(code=4401)
+            return
+        if getattr(user, "role", "") not in ALLOWED_REALTIME_ROLES:
+            await self.close(code=4403)
             return
         query = QueryDict((self.scope.get("query_string") or b"").decode())
         self._filters = {

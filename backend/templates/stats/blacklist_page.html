@@ -1,0 +1,55 @@
+{% extends "stats/base.html" %}
+{% block title %}Blacklist{% endblock %}
+{% block body %}
+<section class="radix-card p-4 mb-4">
+  <h1 class="text-xl font-semibold mb-2">{% tr "Черный список" %}</h1>
+  {% if notice %}<p class="text-green-300 mb-3">{{ notice }}</p>{% endif %}
+  {% if error %}<p class="text-red-300 mb-3">{{ error }}</p>{% endif %}
+  <p class="text-sm text-slate-400 mb-3">{% tr "База" %}: {{ blacklist_db_path }}</p>
+
+  <form method="get" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+    <input name="bq" value="{{ blacklist_query }}" class="radix-input" placeholder="{% tr "Поиск номера" %}" />
+    <button class="radix-button" type="submit">{% tr "Найти" %}</button>
+    <a href="{% url 'blacklist-page' %}" class="radix-button-secondary text-center">{% tr "Сбросить" %}</a>
+  </form>
+
+  <form method="post" class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
+    {% csrf_token %}
+    <input name="number" class="radix-input" placeholder="{% tr "Номер (+998..., 90..., и т.п.)" %}" required />
+    <input name="reason" class="radix-input" placeholder="{% tr "Причина (опционально)" %}" />
+    <button class="radix-button" type="submit" name="action" value="save">{% tr "Добавить номер" %}</button>
+  </form>
+
+  <div class="overflow-auto max-h-96">
+    <table class="radix-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>{% tr "Номер" %}</th>
+          <th>{% tr "Причина" %}</th>
+          <th>{% tr "Действия" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in blacklist_rows %}
+        <tr>
+          <td>{{ row.id }}</td>
+          <td colspan="3">
+            <form method="post" class="grid grid-cols-1 md:grid-cols-4 gap-2">
+              {% csrf_token %}
+              <input type="hidden" name="entry_id" value="{{ row.id }}" />
+              <input name="number" class="radix-input" value="{{ row.number }}" required />
+              <input name="reason" class="radix-input" value="{{ row.reason }}" />
+              <button class="radix-button" type="submit" name="action" value="save">{% tr "Сохранить" %}</button>
+              <button class="radix-button-secondary" type="submit" name="action" value="delete">{% tr "Удалить" %}</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4">{% tr "Черный список пуст" %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

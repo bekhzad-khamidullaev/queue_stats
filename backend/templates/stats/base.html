@@ -57,8 +57,8 @@
     {% if request.user.is_authenticated %}
     {% with cur=request.resolver_match.url_name %}
     <header class="border-b border-slate-800 bg-slate-950/70 backdrop-blur">
-      <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap gap-2 items-center justify-between">
-        <nav class="flex flex-wrap gap-2">
+      <div class="max-w-7xl mx-auto px-4 py-3 top-nav-row">
+        <nav class="top-nav-links">
           <a href="{% url 'home' %}" class="radix-button-secondary{% if cur == 'home' %} active{% endif %}">{% tr "Главная" %}</a>
           <a href="{% url 'report-summary-page' %}" class="radix-button-secondary{% if cur == 'report-summary-page' %} active{% endif %}">{% tr "Сводка" %}</a>
           <a href="{% url 'report-answered-page' %}" class="radix-button-secondary{% if cur == 'report-answered-page' %} active{% endif %}">{% tr "Отвеченные" %}</a>
@@ -70,8 +70,12 @@
           <a href="{% url 'payouts-page' %}" class="radix-button-secondary{% if cur == 'payouts-page' %} active{% endif %}">{% tr "Выплаты" %}</a>
           <a href="{% url 'realtime-page' %}" class="radix-button-secondary{% if cur == 'realtime-page' %} active{% endif %}">{% tr "Риалтайм" %}</a>
           {% if request.user.role == 'admin' %}<a href="{% url 'settings-page' %}" class="radix-button-secondary{% if cur == 'settings-page' or cur == 'mappings-page' %} active{% endif %}">{% tr "Настройки" %}</a>{% endif %}
+          {% if request.user.role == 'admin' %}<a href="{% url 'blacklist-page' %}" class="radix-button-secondary{% if cur == 'blacklist-page' %} active{% endif %}">{% tr "Черный список" %}</a>{% endif %}
         </nav>
-        <a href="{% url 'web-logout' %}" class="radix-button">{% tr "Выйти" %}</a>
+        <form method="post" action="{% url 'web-logout' %}" class="top-nav-logout">
+          {% csrf_token %}
+          <button type="submit" class="radix-button">{% tr "Выйти" %}</button>
+        </form>
       </div>
     </header>
     {% endwith %}

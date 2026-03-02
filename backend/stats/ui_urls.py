@@ -25,6 +25,7 @@ urlpatterns = [
     path("dashboards/queues/", ui_views.dashboard_queues_page, name="dashboard-queues-page"),
     path("dashboards/operators/", ui_views.dashboard_operators_page, name="dashboard-operators-page"),
     path("settings/", ui_views.settings_page, name="settings-page"),
+    path("blacklist/", ui_views.blacklist_page, name="blacklist-page"),
     path("mappings/", ui_views.mappings_page, name="mappings-page"),
 
     path("recordings/<str:uniqueid>/stream/", ui_views.recording_stream, name="recording-stream"),

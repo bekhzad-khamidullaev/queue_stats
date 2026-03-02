@@ -4,7 +4,7 @@
 <section class="radix-card p-4 mb-4 space-y-2">
   <div class="flex items-center justify-between gap-3">
     <h1 class="text-xl font-semibold">{% tr "Детали звонка" %}: {{ callid }}</h1>
-    <a href="javascript:history.back()" class="radix-button-secondary">{% tr "Назад" %}</a>
+    <a href="{% url 'report-cdr-page' %}" class="radix-button-secondary">{% tr "Назад" %}</a>
   </div>
   <p class="text-sm text-slate-300">{% tr "Статус" %}: {{ outcome }}</p>
   {% if caller %}<p class="text-sm text-slate-300">{% tr "Caller" %}: {{ caller }}</p>{% endif %}

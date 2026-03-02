@@ -1,6 +1,5 @@
 """API views for Asterisk AMI management"""
 from django.http import JsonResponse, HttpRequest
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_GET, require_POST
 import json
 from typing import Dict, Any
@@ -52,7 +51,6 @@ def _ami_action(action_func, **params) -> JsonResponse:
 # Call Control
 # =============================================================================
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_originate(request: HttpRequest) -> JsonResponse:
@@ -80,7 +78,6 @@ def ami_originate(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_hangup(request: HttpRequest) -> JsonResponse:
@@ -101,7 +98,6 @@ def ami_hangup(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_redirect(request: HttpRequest) -> JsonResponse:
@@ -127,7 +123,6 @@ def ami_redirect(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_bridge(request: HttpRequest) -> JsonResponse:
@@ -200,7 +195,6 @@ def ami_queue_summary(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_queue_add(request: HttpRequest) -> JsonResponse:
@@ -226,7 +220,6 @@ def ami_queue_add(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_queue_remove(request: HttpRequest) -> JsonResponse:
@@ -248,7 +241,6 @@ def ami_queue_remove(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_queue_pause(request: HttpRequest) -> JsonResponse:
@@ -273,7 +265,6 @@ def ami_queue_pause(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN)
 def ami_queue_reload(request: HttpRequest) -> JsonResponse:
@@ -339,7 +330,6 @@ def ami_pjsip_show_endpoint(request: HttpRequest) -> JsonResponse:
 # Monitoring
 # =============================================================================
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_monitor(request: HttpRequest) -> JsonResponse:
@@ -362,7 +352,6 @@ def ami_monitor(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_stop_monitor(request: HttpRequest) -> JsonResponse:
@@ -386,7 +375,6 @@ def ami_stop_monitor(request: HttpRequest) -> JsonResponse:
 # Variables and Utilities
 # =============================================================================
 
-@csrf_exempt
 @require_http_methods(['GET', 'POST'])
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_get_var(request: HttpRequest) -> JsonResponse:
@@ -412,7 +400,6 @@ def ami_get_var(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
 @require_POST
 @require_roles(UserRoles.ADMIN, UserRoles.SUPERVISOR)
 def ami_set_var(request: HttpRequest) -> JsonResponse:
@@ -436,7 +423,6 @@ def ami_set_var(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-@csrf_exempt
 @require_http_methods(['GET', 'POST'])
 @require_roles(UserRoles.ADMIN)
 def ami_command(request: HttpRequest) -> JsonResponse:

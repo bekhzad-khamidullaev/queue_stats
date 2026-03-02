@@ -1,10 +1,13 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 import os
 import mimetypes
 from pathlib import Path
 import logging
 import threading
 import json
+import re
+import sqlite3
+import time
 from datetime import datetime
 
 import requests
@@ -15,7 +18,7 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings as django_settings
 from django.db.models import QuerySet
 from django.db import close_old_connections
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 
 from settings.models import QueueDisplayMapping, AgentDisplayMapping, OperatorPayoutRate, GeneralSettings
 
@@ -53,6 +56,255 @@ from .ami_integration import _build_ami_snapshot, AMIManager
 
 logger = logging.getLogger(__name__)
 ALLOWED_PRODUCT_EVENTS = {"share_clicked", "share_opened"}
+_PHONE_RE = re.compile(r"[^0-9*+#]")
+
+
+def _blacklist_db_path() -> Path:
+    configured = str(getattr(django_settings, "ASTERISK_BLACKLIST_SQLITE_PATH", "") or "").strip()
+    candidates = [configured] if configured else []
+    candidates.extend(
+        [
+            "/var/lib/asterisk/astdb.sqlite3",
+            "/var/lib/asterisk/blacklist.sqlite3",
+        ]
+    )
+    existing = [Path(item) for item in candidates if item]
+    for path in existing:
+        if path.exists():
+            return path
+    return existing[0] if existing else Path("/var/lib/asterisk/astdb.sqlite3")
+
+
+def _normalize_blacklist_number(value: str) -> str:
+    cleaned = _PHONE_RE.sub("", str(value or "").strip())
+    return cleaned
+
+
+def _extract_blacklist_number(key: str) -> str:
+    raw = str(key or "").strip()
+    if "/blacklist/" in raw:
+        return raw.split("/blacklist/", 1)[1].strip()
+    if raw.startswith("blacklist/"):
+        return raw.split("blacklist/", 1)[1].strip()
+    return raw.rsplit("/", 1)[-1].strip()
+
+
+def _detect_blacklist_schema(conn: sqlite3.Connection) -> Tuple[str, str, str, Optional[str]]:
+    table_rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    tables = {str(row[0]) for row in table_rows}
+    preferred_tables = ("blacklist", "black_list", "blocked_numbers", "blocked", "blacklist_numbers")
+    number_columns = ("number", "phone", "callerid", "caller_id", "did", "value")
+    reason_columns = ("reason", "comment", "description", "note", "memo")
+
+    for table_name in preferred_tables:
+        if table_name not in tables:
+            continue
+        cols = [str(item[1]) for item in conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()]
+        number_col = next((col for col in number_columns if col in cols), None)
+        if not number_col:
+            continue
+        reason_col = next((col for col in reason_columns if col in cols), None)
+        return "table", table_name, number_col, reason_col
+
+    if "astdb" in tables:
+        cols = {str(item[1]) for item in conn.execute('PRAGMA table_info("astdb")').fetchall()}
+        if {"key", "value"}.issubset(cols):
+            return "astdb", "astdb", "key", "value"
+
+    raise ValueError("Не найдена таблица black list в SQLite базе Asterisk")
+
+
+def _blacklist_list(search: str = "") -> Dict[str, Any]:
+    db_path = _blacklist_db_path()
+    if not db_path.exists():
+        return {
+            "rows": [],
+            "db_path": str(db_path),
+            "error": f"SQLite база не найдена: {db_path}",
+        }
+
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            mode, table_name, number_col, reason_col = _detect_blacklist_schema(conn)
+
+            if mode == "astdb":
+                sql = """
+                    SELECT rowid AS rowid, key, value
+                    FROM astdb
+                    WHERE (key LIKE '/blacklist/%' OR key LIKE '%/blacklist/%')
+                """
+                params: List[Any] = []
+                if search:
+                    sql += " AND key LIKE ?"
+                    params.append(f"%{search}%")
+                sql += " ORDER BY key"
+                db_rows = conn.execute(sql, params).fetchall()
+                rows = []
+                for item in db_rows:
+                    number = _extract_blacklist_number(str(item["key"]))
+                    rows.append(
+                        {
+                            "id": int(item["rowid"]),
+                            "number": number,
+                            "reason": str(item["value"] or ""),
+                            "source_key": str(item["key"]),
+                        }
+                    )
+                return {"rows": rows, "db_path": str(db_path), "error": "", "mode": "astdb"}
+
+            sql = f'SELECT rowid AS rowid, "{number_col}" AS number'
+            if reason_col:
+                sql += f', "{reason_col}" AS reason'
+            else:
+                sql += ", '' AS reason"
+            sql += f' FROM "{table_name}" WHERE COALESCE("{number_col}", \'\') <> \'\''
+            params = []
+            if search:
+                sql += f' AND "{number_col}" LIKE ?'
+                params.append(f"%{search}%")
+            sql += f' ORDER BY "{number_col}"'
+            db_rows = conn.execute(sql, params).fetchall()
+            rows = [{"id": int(item["rowid"]), "number": str(item["number"] or ""), "reason": str(item["reason"] or "")} for item in db_rows]
+            return {"rows": rows, "db_path": str(db_path), "error": "", "mode": "table"}
+    except sqlite3.Error as exc:
+        return {"rows": [], "db_path": str(db_path), "error": f"Ошибка SQLite: {exc}"}
+    except ValueError as exc:
+        return {"rows": [], "db_path": str(db_path), "error": str(exc)}
+
+
+def _sqlite_connect_with_timeout(db_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path), timeout=30, isolation_level=None)
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
+
+
+def _sqlite_write_with_retry(action, attempts: int = 5, delay: float = 0.5) -> None:
+    for idx in range(attempts):
+        try:
+            action()
+            return
+        except sqlite3.OperationalError as exc:
+            if "database is locked" not in str(exc).lower() or idx == attempts - 1:
+                raise
+            time.sleep(delay * (idx + 1))
+
+
+def _blacklist_create(number: str, reason: str) -> None:
+    db_path = _blacklist_db_path()
+    if not db_path.exists():
+        raise ValueError(f"SQLite база не найдена: {db_path}")
+    def _action() -> None:
+        with _sqlite_connect_with_timeout(db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            mode, table_name, number_col, reason_col = _detect_blacklist_schema(conn)
+            if mode == "astdb":
+                key = f"/blacklist/{number}"
+                existing = conn.execute("SELECT 1 FROM astdb WHERE key = ?", [key]).fetchone()
+                if existing:
+                    raise ValueError("Номер уже есть в черном списке")
+                conn.execute("INSERT INTO astdb (key, value) VALUES (?, ?)", [key, reason or "1"])
+                conn.commit()
+                return
+
+            existing = conn.execute(f'SELECT 1 FROM "{table_name}" WHERE "{number_col}" = ?', [number]).fetchone()
+            if existing:
+                raise ValueError("Номер уже есть в черном списке")
+            if reason_col:
+                conn.execute(
+                    f'INSERT INTO "{table_name}" ("{number_col}", "{reason_col}") VALUES (?, ?)',
+                    [number, reason],
+                )
+            else:
+                conn.execute(f'INSERT INTO "{table_name}" ("{number_col}") VALUES (?)', [number])
+            conn.commit()
+
+    _sqlite_write_with_retry(_action)
+
+
+def _blacklist_update(entry_id: int, number: str, reason: str) -> None:
+    db_path = _blacklist_db_path()
+    if not db_path.exists():
+        raise ValueError(f"SQLite база не найдена: {db_path}")
+    def _action() -> None:
+        with _sqlite_connect_with_timeout(db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            mode, table_name, number_col, reason_col = _detect_blacklist_schema(conn)
+            if mode == "astdb":
+                current = conn.execute("SELECT key FROM astdb WHERE rowid = ?", [entry_id]).fetchone()
+                if not current:
+                    raise ValueError("Запись не найдена")
+                new_key = f"/blacklist/{number}"
+                duplicate = conn.execute("SELECT 1 FROM astdb WHERE key = ? AND rowid <> ?", [new_key, entry_id]).fetchone()
+                if duplicate:
+                    raise ValueError("Номер уже есть в черном списке")
+                conn.execute("UPDATE astdb SET key = ?, value = ? WHERE rowid = ?", [new_key, reason or "1", entry_id])
+                conn.commit()
+                return
+
+            duplicate = conn.execute(
+                f'SELECT 1 FROM "{table_name}" WHERE "{number_col}" = ? AND rowid <> ?',
+                [number, entry_id],
+            ).fetchone()
+            if duplicate:
+                raise ValueError("Номер уже есть в черном списке")
+            if reason_col:
+                conn.execute(
+                    f'UPDATE "{table_name}" SET "{number_col}" = ?, "{reason_col}" = ? WHERE rowid = ?',
+                    [number, reason, entry_id],
+                )
+            else:
+                conn.execute(
+                    f'UPDATE "{table_name}" SET "{number_col}" = ? WHERE rowid = ?',
+                    [number, entry_id],
+                )
+            conn.commit()
+
+    _sqlite_write_with_retry(_action)
+
+
+def _blacklist_delete(entry_id: int) -> None:
+    db_path = _blacklist_db_path()
+    if not db_path.exists():
+        raise ValueError(f"SQLite база не найдена: {db_path}")
+    def _action() -> None:
+        with _sqlite_connect_with_timeout(db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            mode, table_name, _, _ = _detect_blacklist_schema(conn)
+            if mode == "astdb":
+                conn.execute("DELETE FROM astdb WHERE rowid = ?", [entry_id])
+            else:
+                conn.execute(f'DELETE FROM "{table_name}" WHERE rowid = ?', [entry_id])
+            conn.commit()
+
+    _sqlite_write_with_retry(_action)
+
+
+def _handle_blacklist_post(request: HttpRequest) -> tuple[str, str]:
+    action = (request.POST.get("action") or "save").strip().lower()
+    raw_number = (request.POST.get("number") or "").strip()
+    normalized_number = _normalize_blacklist_number(raw_number)
+    reason = (request.POST.get("reason") or "").strip()
+    entry_id_raw = (request.POST.get("entry_id") or "").strip()
+
+    try:
+        if action == "delete":
+            entry_id = int(entry_id_raw or "0")
+            if entry_id <= 0:
+                raise ValueError("Не передан ID записи для удаления")
+            _blacklist_delete(entry_id)
+            return i18n_tr("Номер удалён из черного списка"), ""
+
+        if not normalized_number:
+            raise ValueError("Введите корректный номер")
+        if entry_id_raw:
+            entry_id = int(entry_id_raw)
+            _blacklist_update(entry_id, normalized_number, reason)
+            return i18n_tr("Запись черного списка обновлена"), ""
+        _blacklist_create(normalized_number, reason)
+        return i18n_tr("Номер добавлен в черный список"), ""
+    except (ValueError, sqlite3.Error) as exc:
+        return "", str(exc)
 
 
 def _is_valid_callid(callid: str) -> bool:
@@ -135,6 +387,7 @@ def web_login(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+@require_POST
 def web_logout(request: HttpRequest) -> HttpResponse:
     logout(request)
     return redirect("web-login")
@@ -495,6 +748,35 @@ def mappings_page(request: HttpRequest) -> HttpResponse:
     return redirect("settings-page")
 
 
+@login_required
+@require_http_methods(["GET", "POST"])
+def blacklist_page(request: HttpRequest) -> HttpResponse:
+    if not _admin_allowed(request):
+        return HttpResponse("forbidden", status=403)
+
+    notice = ""
+    error = ""
+    if request.method == "POST":
+        notice, error = _handle_blacklist_post(request)
+
+    blacklist_query = _normalize_blacklist_number((request.GET.get("bq") or "").strip())
+    blacklist_data = _blacklist_list(blacklist_query)
+    if blacklist_data.get("error") and not error:
+        error = str(blacklist_data.get("error"))
+
+    context = _base_context(request)
+    context.update(
+        {
+            "notice": notice,
+            "error": error,
+            "blacklist_query": blacklist_query,
+            "blacklist_rows": blacklist_data.get("rows", []),
+            "blacklist_db_path": blacklist_data.get("db_path", ""),
+        }
+    )
+    return render(request, "stats/blacklist_page.html", context)
+
+
 
 
 
@@ -506,7 +788,14 @@ def recording_stream(request: HttpRequest, uniqueid: str) -> HttpResponse:
     if not uniqueid or not all(c.isalnum() or c in ".-" for c in uniqueid):
         raise Http404("Invalid uniqueid")
 
-    recording_path = _recording_file_by_uniqueid(uniqueid)
+    has_cdr_recording_path = True
+    try:
+        recording_path = _recording_file_by_uniqueid(uniqueid)
+    except Http404:
+        # Some CDR rows may miss recordingfile, but the file can still exist by uniqueid pattern.
+        recording_path = uniqueid
+        has_cdr_recording_path = False
+
     local_path = _resolve_recording_local_path(recording_path)
     if local_path:
         file_size = local_path.stat().st_size
@@ -532,7 +821,7 @@ def recording_stream(request: HttpRequest, uniqueid: str) -> HttpResponse:
         return response
 
     conf = GeneralSettings.objects.first()
-    if conf and conf.download_url:
+    if has_cdr_recording_path and conf and conf.download_url:
         params = {"url": recording_path, "token": conf.download_token}
         auth = (conf.download_user, conf.download_password)
         headers = {}
